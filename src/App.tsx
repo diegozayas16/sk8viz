@@ -1,10 +1,11 @@
 import { FlaskConical, Loader2, Sparkles, Upload, Video } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AccessCodeField } from './components/AccessCodeField.tsx';
 import { AnalysisError } from './components/AnalysisError.tsx';
 import { AnalysisResultCard } from './components/AnalysisResultCard.tsx';
 import { CameraRecorder } from './components/CameraRecorder.tsx';
 import { ClipPicker } from './components/ClipPicker.tsx';
+import { HowItWorks } from './components/HowItWorks.tsx';
 import { SegmentedControl } from './components/SegmentedControl.tsx';
 import { useAnalysis } from './hooks/useAnalysis.ts';
 import { useClipSelection } from './hooks/useClipSelection.ts';
@@ -34,6 +35,15 @@ export default function App() {
   // Demo data is only ever shown on an explicit tap, always with its label.
   const showExample = () => void analysis.run('demo', null);
 
+  // On phones the result appears below the fold, so bring it into view.
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const finished = analysis.state.status === 'success' || analysis.state.status === 'error';
+  useEffect(() => {
+    if (!finished) return;
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    resultsRef.current?.scrollIntoView({ behavior: reduceMotion ? 'auto' : 'smooth', block: 'start' });
+  }, [finished, analysis.state]);
+
   const selectClip = (file: File | null, knownDurationSeconds?: number) => {
     analysis.reset();
     void clipSelection.select(file, knownDurationSeconds);
@@ -53,6 +63,8 @@ export default function App() {
         </h1>
         <p className="text-sm text-zinc-400">AI coaching feedback for your skate clips</p>
       </header>
+
+      <HowItWorks />
 
       {liveUnavailable && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-zinc-900 p-4 text-sm">
@@ -114,7 +126,7 @@ export default function App() {
         </button>
       </div>
 
-      <div aria-live="polite" className="space-y-4">
+      <div ref={resultsRef} aria-live="polite" className="scroll-mt-4 space-y-4">
         {analyzing && <p className="sr-only">Analyzing your clip. This can take up to a minute.</p>}
         {analysis.state.status === 'success' && (
           <AnalysisResultCard result={analysis.state.result} mode={analysis.state.mode} />
