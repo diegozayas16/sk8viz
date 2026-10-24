@@ -30,6 +30,26 @@ function toRequest(req: IncomingMessage, signal: AbortSignal): Request {
   });
 }
 
+// The handler can reply before reading the upload (for example when rate
+// limited). Replying with unread data makes Node reset the connection, which
+// proxies turn into a generic network error, so read and drop what is left,
+// up to the clip limit. Larger uploads still get a reset.
+async function discardUnreadBody(request: Request): Promise<void> {
+  if (!request.body || request.body.locked) return;
+  const reader = request.body.getReader();
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) return;
+      total += value.byteLength;
+      if (total > ANALYSIS_LIMITS.maxClipBytes) return void (await reader.cancel());
+    }
+  } catch {
+    // The client went away; nothing left to drain.
+  }
+}
+
 const server = createServer(async (req, res) => {
   const disconnect = new AbortController();
   res.on('close', () => {
@@ -41,7 +61,9 @@ const server = createServer(async (req, res) => {
   if (path === '/api/analyze') {
     // Uses the socket address. Do not trust X-Forwarded-For unless a verified proxy sets it.
     const clientId = req.socket.remoteAddress ?? 'unknown';
-    response = await analyze(toRequest(req, disconnect.signal), { clientId, signal: disconnect.signal });
+    const request = toRequest(req, disconnect.signal);
+    response = await analyze(request, { clientId, signal: disconnect.signal });
+    await discardUnreadBody(request);
   } else if (path === '/api/health' && req.method === 'GET') {
     response = health();
   } else {
