@@ -37,13 +37,13 @@ Where things live:
 | Concern | Location |
 | --- | --- |
 | Prompts | `server/services/analysisPrompt.ts` |
-| Model selection | `server/config.ts` (`GEMINI_MODEL`, default `gemini-3.6-flash`) |
+| Model selection | `server/config.ts` (`GEMINI_MODEL`, default `gemini-3.6-flash`; `GEMINI_FALLBACK_MODEL`, default `gemini-3.5-flash-lite`, tried once only on a provider 503) |
 | Result and API schemas | `shared/analysis/schema.ts` |
 | Gemini JSON schema conversion | `shared/analysis/geminiSchema.ts` |
 | Resource limits | `shared/analysis/limits.ts` |
 | Demo fixture | `src/services/demoFixture.ts` |
 
-Environment variables (server only, see `.env.example`): `GEMINI_API_KEY` (required for live analysis), `GEMINI_MODEL`, `ANALYSIS_ENABLED` (kill switch), `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (or `KV_REST_API_URL` / `KV_REST_API_TOKEN`; required on Vercel), `API_PORT` (local only).
+Environment variables (server only, see `.env.example`): `GEMINI_API_KEY` (required for live analysis), `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL` (`none` disables), `ANALYSIS_ENABLED` (kill switch), `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (or `KV_REST_API_URL` / `KV_REST_API_TOKEN`; required on Vercel), `API_PORT` (local only).
 
 Treat `package.json`, the lockfile, configuration files, and working code as authoritative. Do not claim planned capabilities already exist.
 

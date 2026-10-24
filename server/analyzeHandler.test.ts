@@ -9,6 +9,7 @@ import { createUsageLimiter } from './usageLimiter.ts';
 const config: ServerConfig = {
   apiKey: 'test',
   model: 'test-model',
+  fallbackModel: null,
   analysisEnabled: true,
   port: 0,
   redis: null,

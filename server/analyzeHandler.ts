@@ -20,6 +20,7 @@ export interface LogEntry {
   durationMs: number;
   bytes?: number;
   tokens?: number;
+  model?: string;
   detail?: string;
 }
 
@@ -141,11 +142,19 @@ export function createAnalyzeHandler(deps: HandlerDeps) {
         return fail(outcome.code, {
           detail: outcome.detail,
           tokens: outcome.tokens,
+          model: outcome.model,
           retryAfterSeconds: outcome.retryAfterSeconds,
         });
       }
 
-      log({ requestId, outcome: 'success', durationMs: Date.now() - started, bytes, tokens: outcome.tokens });
+      log({
+        requestId,
+        outcome: 'success',
+        durationMs: Date.now() - started,
+        bytes,
+        tokens: outcome.tokens,
+        model: outcome.model,
+      });
       return json({ ok: true, requestId, result: outcome.result }, 200);
     } catch {
       return fail('provider_error', { detail: 'unexpected error' });

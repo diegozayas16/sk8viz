@@ -15,7 +15,7 @@ function createLimiter(config: ServerConfig): UsageLimiter {
 
 export function createApp(config: ServerConfig) {
   const analyzer =
-    liveUnavailableReason(config) === null && config.apiKey ? createGeminiAnalyzer(config.apiKey, config.model) : null;
+    liveUnavailableReason(config) === null && config.apiKey ? createGeminiAnalyzer(config.apiKey, config.model, config.fallbackModel) : null;
   return {
     analyze: createAnalyzeHandler({ config, analyzer, limiter: createLimiter(config) }),
     health: createHealthHandler(config),
