@@ -8,7 +8,8 @@ export interface ServerConfig {
 }
 
 // Model IDs come from https://ai.google.dev/gemini-api/docs/models (checked 2026-10-24).
-const DEFAULT_MODEL = 'gemini-3.8-flash';
+// gemini-3.8-flash returned repeated 503 "high demand" errors on 2026-10-24.
+const DEFAULT_MODEL = 'gemini-3.6-flash';
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const port = Number(env.API_PORT);

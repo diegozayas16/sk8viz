@@ -1,5 +1,6 @@
 import { ApiError, FinishReason, GoogleGenAI } from '@google/genai';
 import { toGeminiResponseSchema } from '../../shared/analysis/geminiSchema.ts';
+import { ANALYSIS_LIMITS } from '../../shared/analysis/limits.ts';
 import { AnalysisResultSchema } from '../../shared/analysis/schema.ts';
 import type { ClipAnalyzer } from '../types.ts';
 import { SYSTEM_INSTRUCTION, USER_PROMPT } from './analysisPrompt.ts';
@@ -13,7 +14,12 @@ const BLOCKED_FINISH_REASONS = new Set<string>([
 ]);
 
 export function createGeminiAnalyzer(apiKey: string, model: string): ClipAnalyzer {
-  const ai = new GoogleGenAI({ apiKey });
+  // The SDK retries up to 5 times by default, which can silently outlast the
+  // analysis timeout and duplicate billed work. Use our own retry limit.
+  const ai = new GoogleGenAI({
+    apiKey,
+    httpOptions: { retryOptions: { attempts: 1 + ANALYSIS_LIMITS.maxProviderRetries } },
+  });
   const responseJsonSchema = toGeminiResponseSchema();
 
   return async ({ bytes, mimeType, signal }) => {
@@ -41,7 +47,9 @@ export function createGeminiAnalyzer(apiKey: string, model: string): ClipAnalyze
       // still finish (and bill) the request.
       if (signal.aborted) return { ok: false, code: 'timeout', detail: 'aborted' };
       if (error instanceof ApiError) {
-        if (error.status === 429) return { ok: false, code: 'busy', detail: 'provider 429', retryAfterSeconds: 30 };
+        if (error.status === 429 || error.status === 503) {
+          return { ok: false, code: 'busy', detail: `provider ${error.status}`, retryAfterSeconds: 30 };
+        }
         if (error.status === 401 || error.status === 403) {
           return { ok: false, code: 'server_misconfigured', detail: `provider ${error.status}` };
         }

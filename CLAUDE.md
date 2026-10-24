@@ -35,7 +35,7 @@ Where things live:
 | Concern | Location |
 | --- | --- |
 | Prompts | `server/services/analysisPrompt.ts` |
-| Model selection | `server/config.ts` (`GEMINI_MODEL`, default `gemini-3.8-flash`) |
+| Model selection | `server/config.ts` (`GEMINI_MODEL`, default `gemini-3.6-flash`) |
 | Result and API schemas | `shared/analysis/schema.ts` |
 | Gemini JSON schema conversion | `shared/analysis/geminiSchema.ts` |
 | Resource limits | `shared/analysis/limits.ts` |
