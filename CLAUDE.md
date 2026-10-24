@@ -20,42 +20,46 @@ Keep feature requirements and acceptance criteria in the PRD or current task. Th
 
 ## Repository Facts and Verification
 
-The repository has not been audited against this document. The stack below comes from the project draft; commands and paths must be verified.
+Verified 2026-10-24 against `package.json` and working code:
 
-- Frontend: React, Vite, and TypeScript.
-- Styling: Tailwind CSS and Lucide React.
-- AI SDK: official Google Gen AI SDK (`@google/genai`).
-- Client state: React hooks and focused custom hooks.
-- Backend and hosting platform: not yet verified.
+- Frontend: React 19, Vite 8, TypeScript 7, Tailwind CSS 4 (`@tailwindcss/vite`), Lucide React.
+- Validation: Zod 4. Types are derived from schemas with `z.infer`.
+- AI SDK: `@google/genai` 2.x, called through `ai.models.generateContent` with inline video data.
+- Tests: Vitest 5 (Node environment).
+- Backend: platform-neutral handlers built on standard `Request`/`Response` in `server/`. Locally they run in a plain Node HTTP server (`server/dev.ts`). Node 24+ runs the `.ts` files directly through type stripping, so server code must use erasable syntax only (no enums or parameter properties) and `.ts` import extensions.
+- Hosting platform: not yet chosen. The in-memory limiter (`server/usageLimiter.ts`) is correct only for a single process.
+- MVP input: upload of one short clip. Camera capture is not implemented.
 
-Treat `package.json`, the lockfile, configuration files, and working code as authoritative.
+Where things live:
 
-During the first repository review:
+| Concern | Location |
+| --- | --- |
+| Prompts | `server/services/analysisPrompt.ts` |
+| Model selection | `server/config.ts` (`GEMINI_MODEL`, default `gemini-3.8-flash`) |
+| Result and API schemas | `shared/analysis/schema.ts` |
+| Gemini JSON schema conversion | `shared/analysis/geminiSchema.ts` |
+| Resource limits | `shared/analysis/limits.ts` |
+| Demo fixture | `src/services/demoFixture.ts` |
 
-1. Verify installed versions and existing architecture.
-2. Identify the backend and deployment platform.
-3. Replace provisional commands and paths below with verified values.
-4. Document required environment-variable names without their values.
-5. Record where prompts, model selection, schemas, and resource limits live.
+Environment variables (server only, see `.env.example`): `GEMINI_API_KEY` (required for live analysis), `GEMINI_MODEL`, `ANALYSIS_ENABLED` (kill switch), `API_PORT`.
 
-Do not claim planned capabilities already exist.
+Treat `package.json`, the lockfile, configuration files, and working code as authoritative. Do not claim planned capabilities already exist.
 
 ## Development Commands
 
-| Task | Provisional command or required verification |
+| Task | Command |
 | --- | --- |
-| Local dependency installation | `npm install` |
-| Reproducible installation | `npm ci` with a synchronized `package-lock.json` |
-| Frontend development | `npm run dev` |
-| Type checking | Verify whether `npx tsc --noEmit` covers all relevant TypeScript projects |
-| Production build | `npm run build` |
-| Lint and tests | Inspect `package.json` for existing scripts |
-| Local backend | Identify and document the actual command |
+| Install dependencies | `npm install` (use `npm ci` for a reproducible install) |
+| Frontend dev server | `npm run dev` (port 5173, proxies `/api` to 8787) |
+| Local API server | `npm run dev:api` (port 8787, reads `.env` if present) |
+| Type checking | `npm run typecheck` (app and server tsconfigs) |
+| Tests | `npm test` |
+| Production build | `npm run build` (runs type checking first) |
+| Lint | None configured |
 
-- Do not assume the frontend development server runs backend endpoints.
+- The Vite dev server does not run backend endpoints; run both dev commands for live analysis.
 - Do not invent scripts or claim missing checks passed.
 - Keep dependency manifests and lockfiles synchronized.
-- Once verified, replace this table with exact working commands.
 
 ## Architecture and Boundaries
 
