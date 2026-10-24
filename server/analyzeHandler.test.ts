@@ -11,6 +11,7 @@ const config: ServerConfig = {
   model: 'test-model',
   fallbackModel: null,
   analysisEnabled: true,
+  accessCode: null,
   port: 0,
   redis: null,
   requireSharedLimiter: false,
@@ -156,6 +157,42 @@ describe('analyze handler', () => {
     const response = await handler(upload(mp4Bytes), { clientId: 'a' });
     expect(response.status).toBe(503);
     expect(called).toBe(false);
+  });
+
+  it('requires the access code when one is configured, without using the limiter', async () => {
+    let acquired = 0;
+    const limiter = {
+      tryAcquire: async () => {
+        acquired += 1;
+        return { ok: true as const, release: async () => {} };
+      },
+    };
+    const { handler } = setup({ config: { ...config, accessCode: 'kickflip' }, limiter });
+    expect((await handler(upload(mp4Bytes), { clientId: 'a' })).status).toBe(401);
+    expect((await handler(upload(mp4Bytes, 'video/mp4', { 'X-Access-Code': 'nope' }), { clientId: 'a' })).status).toBe(401);
+    expect(acquired).toBe(0);
+    const ok = await handler(upload(mp4Bytes, 'video/mp4', { 'X-Access-Code': ' kickflip ' }), { clientId: 'a' });
+    expect(ok.status).toBe(200);
+    expect(acquired).toBe(1);
+  });
+
+  it('refunds daily usage only when the provider did not run the analysis', async () => {
+    const refunds: (boolean | undefined)[] = [];
+    const limiter = {
+      tryAcquire: async () => ({
+        ok: true as const,
+        release: async (options?: { refund?: boolean }) => {
+          refunds.push(options?.refund);
+        },
+      }),
+    };
+    const busy: ClipAnalyzer = async () => ({ ok: false, code: 'busy', detail: 'provider 503' });
+    const badOutput: ClipAnalyzer = async () => ({ ok: false, code: 'invalid_model_output', detail: 'x' });
+    await setup({ limiter }).handler(upload(mp4Bytes), { clientId: 'a' });
+    await setup({ limiter, analyzer: busy }).handler(upload(mp4Bytes), { clientId: 'a' });
+    await setup({ limiter, analyzer: badOutput }).handler(upload(mp4Bytes), { clientId: 'a' });
+    await setup({ limiter }).handler(upload(new Uint8Array([9, 9, 9, 9, 9, 9, 9, 9]), 'video/webm'), { clientId: 'a' });
+    expect(refunds).toEqual([false, true, false, true]);
   });
 
   it('reports live analysis unavailable when a deployment has no shared limiter', () => {

@@ -12,6 +12,7 @@ const SERVICE_UNAVAILABLE = new Set<ClientError['code']>([
   'bad_response',
   'busy',
   'quota_exceeded',
+  'daily_limit_reached',
   'analysis_disabled',
   'server_misconfigured',
   'provider_error',

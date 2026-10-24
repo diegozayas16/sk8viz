@@ -5,12 +5,15 @@ import type { ClientError, SelectedClip } from '../types/analysis.ts';
 
 export type AnalyzeOutcome = { ok: true; result: AnalysisResult } | { ok: false; error: ClientError } | { ok: false; aborted: true };
 
-export async function analyzeClip(clip: SelectedClip, signal: AbortSignal): Promise<AnalyzeOutcome> {
+export async function analyzeClip(clip: SelectedClip, accessCode: string, signal: AbortSignal): Promise<AnalyzeOutcome> {
+  const headers: Record<string, string> = { 'Content-Type': clip.type };
+  if (accessCode.trim()) headers['X-Access-Code'] = accessCode.trim();
+
   let response: Response;
   try {
     response = await fetch('/api/analyze', {
       method: 'POST',
-      headers: { 'Content-Type': clip.type },
+      headers,
       body: clip.file,
       signal,
     });
@@ -42,5 +45,5 @@ export async function fetchHealth(signal: AbortSignal): Promise<HealthResponse> 
   } catch {
     // Fall through to the unreachable state below.
   }
-  return { liveAnalysisAvailable: false, reason: "Can't reach the analysis server." };
+  return { liveAnalysisAvailable: false, reason: "Can't reach the analysis server.", accessCodeRequired: false };
 }

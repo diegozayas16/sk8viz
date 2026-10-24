@@ -57,6 +57,24 @@ describe('createGeminiAnalyzer fallback', () => {
     expect(modelsCalled()).toEqual(['main', 'backup']);
   });
 
+  it('falls back when the main model is out of quota', async () => {
+    generateContent.mockRejectedValueOnce(new ApiError({ message: 'quota PerDay exceeded', status: 429 }));
+    generateContent.mockResolvedValueOnce(okResponse);
+    const outcome = await createGeminiAnalyzer('key', 'main', 'backup')(input());
+    expect(outcome).toMatchObject({ ok: true, model: 'backup' });
+  });
+
+  it('reports quota_exceeded when both models hit a daily quota, busy for per-minute limits', async () => {
+    generateContent.mockImplementation(async () => {
+      throw new ApiError({ message: '{"quotaId":"GenerateRequestsPerDayPerProjectPerModel-FreeTier"}', status: 429 });
+    });
+    expect(await createGeminiAnalyzer('key', 'main', 'backup')(input())).toMatchObject({ code: 'quota_exceeded' });
+    generateContent.mockImplementation(async () => {
+      throw new ApiError({ message: '{"quotaId":"GenerateRequestsPerMinutePerProjectPerModel"}', status: 429 });
+    });
+    expect(await createGeminiAnalyzer('key', 'main', 'backup')(input())).toMatchObject({ code: 'busy' });
+  });
+
   it('does not fall back for other errors or when disabled', async () => {
     generateContent.mockRejectedValueOnce(new ApiError({ message: 'bad request', status: 400 }));
     expect(await createGeminiAnalyzer('key', 'main', 'backup')(input())).toMatchObject({ code: 'provider_error' });

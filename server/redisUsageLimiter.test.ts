@@ -35,6 +35,18 @@ describe('createRedisUsageLimiter', () => {
     expect(removed[0]?.[1]).toBe(removed[1]?.[1]);
   });
 
+  it('runs the refund script only when asked', async () => {
+    const { redis, keys } = fakeRedis([1]);
+    const limiter = createRedisUsageLimiter(redis, ANALYSIS_LIMITS);
+    const kept = await limiter.tryAcquire('a');
+    if (kept.ok) await kept.release();
+    const refunded = await limiter.tryAcquire('a');
+    if (refunded.ok) await refunded.release({ refund: true });
+    // Three eval calls: two acquires and one refund of the quota and per-visitor day keys.
+    expect(keys).toHaveLength(3);
+    expect(keys[2]?.every((key) => key.includes(':quota:') || key.includes(':day:'))).toBe(true);
+  });
+
   it('maps rejections to error codes and retry times', async () => {
     const { redis } = fakeRedis([0, 'rate_limited', 85]);
     expect(await createRedisUsageLimiter(redis, ANALYSIS_LIMITS).tryAcquire('a')).toEqual({

@@ -6,6 +6,8 @@ export interface ServerConfig {
   // Tried once when the main model is overloaded (503). null disables it.
   fallbackModel: string | null;
   analysisEnabled: boolean;
+  // When set, live analysis requires this code in the X-Access-Code header.
+  accessCode: string | null;
   port: number;
   // Upstash Redis REST credentials for the shared rate limiter.
   redis: { url: string; token: string } | null;
@@ -31,6 +33,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     model,
     fallbackModel: fallback.toLowerCase() === 'none' || fallback === model ? null : fallback,
     analysisEnabled: env.ANALYSIS_ENABLED?.trim().toLowerCase() !== 'false',
+    accessCode: env.ANALYSIS_ACCESS_CODE?.trim() || null,
     port: Number.isInteger(port) && port > 0 ? port : 8787,
     redis: redisUrl && redisToken ? { url: redisUrl, token: redisToken } : null,
     requireSharedLimiter: env.VERCEL === '1',

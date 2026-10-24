@@ -64,6 +64,8 @@ export const AnalysisErrorCodeSchema = z.enum([
   'rate_limited',
   'busy',
   'quota_exceeded',
+  'daily_limit_reached',
+  'access_denied',
   'analysis_disabled',
   'timeout',
   'content_blocked',
@@ -92,6 +94,7 @@ export type AnalyzeResponse = z.infer<typeof AnalyzeResponseSchema>;
 export const HealthResponseSchema = z.object({
   liveAnalysisAvailable: z.boolean(),
   reason: z.string().nullable(),
+  accessCodeRequired: z.boolean(),
 });
 
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;

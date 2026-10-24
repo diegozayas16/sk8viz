@@ -28,7 +28,7 @@ Verified 2026-10-24 against `package.json` and working code:
 - Tests: Vitest 5 (Node environment).
 - Backend: platform-neutral handlers built on standard `Request`/`Response` in `server/`, wired together in `server/app.ts`. Locally they run in a plain Node HTTP server (`server/dev.ts`). Node 24 runs the `.ts` files directly through type stripping, so server code must use erasable syntax only (no enums or parameter properties) and `.ts` import extensions.
 - Hosting: Vercel (not yet deployed). `api/analyze.ts` and `api/health.ts` are Vercel Functions (Node.js 24, Web `fetch` export). Vercel compiles them using the root `tsconfig.json`, which rewrites `.ts` imports to `.js`. `npx vercel build` succeeds locally.
-- Rate limits: shared Upstash Redis limiter (`server/redisUsageLimiter.ts`, one atomic Lua script, slots are expiring leases) when Upstash credentials are set; in-memory limiter (`server/usageLimiter.ts`) otherwise. On Vercel (`VERCEL=1`) live analysis is disabled unless Redis is configured. The Lua script has not yet run against a real Redis.
+- Rate limits: shared Upstash Redis limiter (`server/redisUsageLimiter.ts`, one atomic Lua script, slots are expiring leases) when Upstash credentials are set; in-memory limiter (`server/usageLimiter.ts`) otherwise. On Vercel (`VERCEL=1`) live analysis is disabled unless Redis is configured. Limits: 3 analyses per visitor per UTC day and 35 per day site-wide (sized to the Gemini free tier). Attempts that never reached Gemini, or that Gemini rejected as busy or over quota, are refunded. The Lua script has not yet run against a real Redis.
 - Clip size is capped at 4 MB because Vercel Functions reject request bodies over 4.5 MB.
 - Clip input: upload a file, or record in the browser (`src/hooks/useCameraRecorder.ts`, settings in `src/services/recording.ts`). Recording uses `getUserMedia` (video only, rear camera by default) and `MediaRecorder` (MP4 preferred, WebM fallback, ~0.9 Mbps), stops at 30 s or near the size limit, and always releases the camera. Recordings pass their measured duration to `useClipSelection` because Chrome's WebM recordings report an infinite duration. The browser pane blocks real cameras, so recording was verified there with a canvas-backed fake `getUserMedia`; the user confirmed it works on their phone on the deployed site (2026-10-24, device and browser not recorded).
 
@@ -37,13 +37,13 @@ Where things live:
 | Concern | Location |
 | --- | --- |
 | Prompts | `server/services/analysisPrompt.ts` |
-| Model selection | `server/config.ts` (`GEMINI_MODEL`, default `gemini-3.6-flash`; `GEMINI_FALLBACK_MODEL`, default `gemini-3.5-flash-lite`, tried once only on a provider 503) |
+| Model selection | `server/config.ts` (`GEMINI_MODEL`, default `gemini-3.6-flash`; `GEMINI_FALLBACK_MODEL`, default `gemini-3.5-flash-lite`, tried once only on a provider 503 or 429). Free-tier keys allow about 20 requests per day per model (seen 2026-10-24 for `gemini-3.6-flash`); daily-quota 429s map to `quota_exceeded`. |
 | Result and API schemas | `shared/analysis/schema.ts` |
 | Gemini JSON schema conversion | `shared/analysis/geminiSchema.ts` |
 | Resource limits | `shared/analysis/limits.ts` |
 | Demo fixture | `src/services/demoFixture.ts` |
 
-Environment variables (server only, see `.env.example`): `GEMINI_API_KEY` (required for live analysis), `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL` (`none` disables), `ANALYSIS_ENABLED` (kill switch), `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (or `KV_REST_API_URL` / `KV_REST_API_TOKEN`; required on Vercel), `API_PORT` (local only).
+Environment variables (server only, see `.env.example`): `GEMINI_API_KEY` (required for live analysis), `GEMINI_MODEL`, `GEMINI_FALLBACK_MODEL` (`none` disables), `ANALYSIS_ENABLED` (kill switch), `ANALYSIS_ACCESS_CODE` (optional; when set, `/api/analyze` requires it in the `X-Access-Code` header, checked before any usage is counted, and the UI shows a code field; the code lives only in React state), `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (or `KV_REST_API_URL` / `KV_REST_API_TOKEN`; required on Vercel), `API_PORT` (local only).
 
 Treat `package.json`, the lockfile, configuration files, and working code as authoritative. Do not claim planned capabilities already exist.
 

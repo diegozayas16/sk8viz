@@ -21,6 +21,9 @@ redis.call('ZREMRANGEBYSCORE', KEYS[4], '-inf', now)
 if tonumber(redis.call('GET', KEYS[1]) or '0') >= tonumber(ARGV[9]) then
   return {0, 'quota_exceeded', math.ceil((dayEnd - now) / 1000)}
 end
+if tonumber(redis.call('GET', KEYS[5]) or '0') >= tonumber(ARGV[10]) then
+  return {0, 'daily_limit_reached', math.ceil((dayEnd - now) / 1000)}
+end
 
 redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', now - windowMs)
 if redis.call('ZCARD', KEYS[2]) >= tonumber(ARGV[6]) then
@@ -38,6 +41,8 @@ redis.call('ZADD', KEYS[2], now, leaseId)
 redis.call('PEXPIRE', KEYS[2], windowMs)
 redis.call('INCR', KEYS[1])
 redis.call('PEXPIREAT', KEYS[1], dayEnd + 3600000)
+redis.call('INCR', KEYS[5])
+redis.call('PEXPIREAT', KEYS[5], dayEnd + 3600000)
 redis.call('ZADD', KEYS[3], now + leaseMs, leaseId)
 redis.call('PEXPIRE', KEYS[3], leaseMs)
 redis.call('ZADD', KEYS[4], now + leaseMs, leaseId)
@@ -45,9 +50,22 @@ redis.call('PEXPIRE', KEYS[4], leaseMs)
 return {1}
 `;
 
+// Gives back the daily counts for an attempt the provider never ran. Never
+// goes below zero (the day's keys may have expired in between).
+const REFUND_SCRIPT = `
+for i = 1, #KEYS do
+  if tonumber(redis.call('GET', KEYS[i]) or '0') > 0 then redis.call('DECR', KEYS[i]) end
+end
+return 1
+`;
+
 const ScriptResultSchema = z.union([
   z.tuple([z.literal(1)]),
-  z.tuple([z.literal(0), z.enum(['rate_limited', 'busy', 'quota_exceeded']), z.number()]),
+  z.tuple([
+    z.literal(0),
+    z.enum(['rate_limited', 'busy', 'quota_exceeded', 'daily_limit_reached']),
+    z.number(),
+  ]),
 ]);
 
 const PREFIX = 'sk8viz:limits';
@@ -70,10 +88,12 @@ export function createRedisUsageLimiter(
       const leaseId = randomUUID();
       const clientActiveKey = `${PREFIX}:active:${client}`;
       const globalActiveKey = `${PREFIX}:active:global`;
+      const quotaKey = `${PREFIX}:quota:${day}`;
+      const clientDayKey = `${PREFIX}:day:${day}:${client}`;
 
       const raw = await redis.eval<(string | number)[], unknown>(
         ACQUIRE_SCRIPT,
-        [`${PREFIX}:quota:${day}`, `${PREFIX}:history:${client}`, clientActiveKey, globalActiveKey],
+        [quotaKey, `${PREFIX}:history:${client}`, clientActiveKey, globalActiveKey, clientDayKey],
         [
           time,
           limits.perClientWindowMs,
@@ -84,6 +104,7 @@ export function createRedisUsageLimiter(
           limits.maxActivePerClient,
           limits.maxGlobalConcurrent,
           limits.maxDailyAnalyses,
+          limits.perClientDailyMax,
         ],
       );
 
@@ -93,10 +114,14 @@ export function createRedisUsageLimiter(
       let released = false;
       const acquired: AcquireResult = {
         ok: true,
-        async release() {
+        async release(options) {
           if (released) return;
           released = true;
-          await Promise.all([redis.zrem(clientActiveKey, leaseId), redis.zrem(globalActiveKey, leaseId)]);
+          await Promise.all([
+            redis.zrem(clientActiveKey, leaseId),
+            redis.zrem(globalActiveKey, leaseId),
+            options?.refund ? redis.eval(REFUND_SCRIPT, [quotaKey, clientDayKey], []) : null,
+          ]);
         },
       };
       return acquired;

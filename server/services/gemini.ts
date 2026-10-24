@@ -13,10 +13,17 @@ const BLOCKED_FINISH_REASONS = new Set<string>([
   FinishReason.IMAGE_SAFETY,
 ]);
 
-// A 503 means the model is overloaded and did not process the request, so
-// trying the fallback model once does not duplicate billed work.
-function isOverloaded(error: unknown): boolean {
-  return error instanceof ApiError && error.status === 503;
+// 503 (overloaded) and 429 (rate or quota limit, which Google applies per
+// model) mean the request was not processed, so trying the fallback model
+// once does not duplicate billed work.
+function shouldFallBack(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 503 || error.status === 429);
+}
+
+// Free-tier keys hit per-day request quotas (e.g. 20/day per model). Google
+// names the exhausted quota in the error message.
+function isDailyQuota(error: ApiError): boolean {
+  return error.status === 429 && /PerDay/.test(error.message);
 }
 
 export function createGeminiAnalyzer(apiKey: string, model: string, fallbackModel: string | null): ClipAnalyzer {
@@ -61,7 +68,7 @@ export function createGeminiAnalyzer(apiKey: string, model: string, fallbackMode
       try {
         response = await generate(model);
       } catch (error) {
-        if (!fallbackModel || signal.aborted || !isOverloaded(error)) throw error;
+        if (!fallbackModel || signal.aborted || !shouldFallBack(error)) throw error;
         usedModel = fallbackModel;
         response = await generate(fallbackModel);
       }
@@ -71,6 +78,9 @@ export function createGeminiAnalyzer(apiKey: string, model: string, fallbackMode
       if (signal.aborted) return { ok: false, code: 'timeout', detail: 'aborted', model: usedModel };
       if (error instanceof ApiError) {
         const detail = `provider ${error.status}`;
+        if (isDailyQuota(error)) {
+          return { ok: false, code: 'quota_exceeded', detail: `${detail} (daily quota)`, model: usedModel };
+        }
         if (error.status === 429 || error.status === 503) {
           return { ok: false, code: 'busy', detail, retryAfterSeconds: 30, model: usedModel };
         }

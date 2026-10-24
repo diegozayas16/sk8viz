@@ -1,5 +1,6 @@
 import { FlaskConical, Loader2, Sparkles, Upload, Video } from 'lucide-react';
 import { useState } from 'react';
+import { AccessCodeField } from './components/AccessCodeField.tsx';
 import { AnalysisError } from './components/AnalysisError.tsx';
 import { AnalysisResultCard } from './components/AnalysisResultCard.tsx';
 import { CameraRecorder } from './components/CameraRecorder.tsx';
@@ -18,6 +19,7 @@ const SOURCE_OPTIONS = [
 
 export default function App() {
   const [source, setSource] = useState<ClipSource>('upload');
+  const [accessCode, setAccessCode] = useState('');
   const clipSelection = useClipSelection();
   const analysis = useAnalysis();
   const health = useLiveAvailability();
@@ -25,7 +27,9 @@ export default function App() {
   const clip = clipSelection.state.status === 'ready' ? clipSelection.state.clip : null;
   const analyzing = analysis.state.status === 'analyzing';
   const liveUnavailable = health !== null && !health.liveAnalysisAvailable;
-  const canAnalyze = !analyzing && clip !== null && health?.liveAnalysisAvailable === true;
+  const needsCode = health?.liveAnalysisAvailable === true && health.accessCodeRequired;
+  const canAnalyze =
+    !analyzing && clip !== null && health?.liveAnalysisAvailable === true && (!needsCode || accessCode.trim() !== '');
 
   // Demo data is only ever shown on an explicit tap, always with its label.
   const showExample = () => void analysis.run('demo', null);
@@ -80,11 +84,13 @@ export default function App() {
         )}
       </section>
 
+      {needsCode && <AccessCodeField value={accessCode} onChange={setAccessCode} disabled={analyzing} />}
+
       <div className="space-y-2">
         <button
           type="button"
           disabled={!canAnalyze}
-          onClick={() => void analysis.run('live', clip)}
+          onClick={() => void analysis.run('live', clip, accessCode)}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-lime-400 px-4 py-3 font-bold text-zinc-950 transition hover:bg-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {analyzing ? (

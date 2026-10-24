@@ -22,7 +22,11 @@ export const ANALYSIS_LIMITS = {
   perClientMaxRequests: 5,
   maxActivePerClient: 1,
   maxGlobalConcurrent: 2,
-  maxDailyAnalyses: 100,
+  // Analyses per visitor per UTC day, so one person cannot use the whole quota.
+  perClientDailyMax: 3,
+  // Sized to the Gemini free tier: ~20 requests/day per model, main + fallback.
+  // Raise this if billing is enabled on the Gemini key.
+  maxDailyAnalyses: 35,
   // How long a concurrency slot is held if a function dies without releasing
   // it. Must exceed the analysis timeout so a live request never loses its slot.
   slotLeaseMs: 2 * 60_000,

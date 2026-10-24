@@ -25,7 +25,7 @@ export function useAnalysis() {
 
   useEffect(() => cancel, [cancel]);
 
-  const run = useCallback(async (mode: AnalysisMode, clip: SelectedClip | null) => {
+  const run = useCallback(async (mode: AnalysisMode, clip: SelectedClip | null, accessCode = '') => {
     if (inFlightRef.current) return;
 
     if (mode === 'demo') {
@@ -43,7 +43,7 @@ export function useAnalysis() {
     inFlightRef.current = true;
     setState({ status: 'analyzing', mode });
 
-    const outcome = await analyzeClip(clip, controller.signal);
+    const outcome = await analyzeClip(clip, accessCode, controller.signal);
     if (id !== requestIdRef.current) return;
 
     inFlightRef.current = false;
