@@ -26,8 +26,10 @@ Verified 2026-10-24 against `package.json` and working code:
 - Validation: Zod 4. Types are derived from schemas with `z.infer`.
 - AI SDK: `@google/genai` 2.x, called through `ai.models.generateContent` with inline video data.
 - Tests: Vitest 5 (Node environment).
-- Backend: platform-neutral handlers built on standard `Request`/`Response` in `server/`. Locally they run in a plain Node HTTP server (`server/dev.ts`). Node 24+ runs the `.ts` files directly through type stripping, so server code must use erasable syntax only (no enums or parameter properties) and `.ts` import extensions.
-- Hosting platform: not yet chosen. The in-memory limiter (`server/usageLimiter.ts`) is correct only for a single process.
+- Backend: platform-neutral handlers built on standard `Request`/`Response` in `server/`, wired together in `server/app.ts`. Locally they run in a plain Node HTTP server (`server/dev.ts`). Node 24 runs the `.ts` files directly through type stripping, so server code must use erasable syntax only (no enums or parameter properties) and `.ts` import extensions.
+- Hosting: Vercel (not yet deployed). `api/analyze.ts` and `api/health.ts` are Vercel Functions (Node.js 24, Web `fetch` export). Vercel compiles them using the root `tsconfig.json`, which rewrites `.ts` imports to `.js`. `npx vercel build` succeeds locally.
+- Rate limits: shared Upstash Redis limiter (`server/redisUsageLimiter.ts`, one atomic Lua script, slots are expiring leases) when Upstash credentials are set; in-memory limiter (`server/usageLimiter.ts`) otherwise. On Vercel (`VERCEL=1`) live analysis is disabled unless Redis is configured. The Lua script has not yet run against a real Redis.
+- Clip size is capped at 4 MB because Vercel Functions reject request bodies over 4.5 MB.
 - MVP input: upload of one short clip. Camera capture is not implemented.
 
 Where things live:
@@ -41,7 +43,7 @@ Where things live:
 | Resource limits | `shared/analysis/limits.ts` |
 | Demo fixture | `src/services/demoFixture.ts` |
 
-Environment variables (server only, see `.env.example`): `GEMINI_API_KEY` (required for live analysis), `GEMINI_MODEL`, `ANALYSIS_ENABLED` (kill switch), `API_PORT`.
+Environment variables (server only, see `.env.example`): `GEMINI_API_KEY` (required for live analysis), `GEMINI_MODEL`, `ANALYSIS_ENABLED` (kill switch), `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` (or `KV_REST_API_URL` / `KV_REST_API_TOKEN`; required on Vercel), `API_PORT` (local only).
 
 Treat `package.json`, the lockfile, configuration files, and working code as authoritative. Do not claim planned capabilities already exist.
 
@@ -52,10 +54,11 @@ Treat `package.json`, the lockfile, configuration files, and working code as aut
 | Install dependencies | `npm install` (use `npm ci` for a reproducible install) |
 | Frontend dev server | `npm run dev` (port 5173, proxies `/api` to 8787) |
 | Local API server | `npm run dev:api` (port 8787, reads `.env` if present) |
-| Type checking | `npm run typecheck` (app and server tsconfigs) |
+| Type checking | `npm run typecheck` (`tsconfig.app.json` for the browser, `tsconfig.json` for api/server/shared) |
 | Tests | `npm test` |
 | Production build | `npm run build` (runs type checking first) |
 | Lint | None configured |
+| Vercel build check | `npx vercel build` (needs `.vercel/project.json`; output in `.vercel/output`, gitignored) |
 
 - The Vite dev server does not run backend endpoints; run both dev commands for live analysis.
 - Do not invent scripts or claim missing checks passed.

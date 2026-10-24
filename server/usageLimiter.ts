@@ -1,8 +1,9 @@
 import type { AnalysisErrorCode } from '../shared/analysis/schema.ts';
 
-// In-memory rate, concurrency and quota limits. This is correct only while
-// all requests reach a single process. Serverless or multi-instance hosting
-// needs this state moved to a shared store (see CLAUDE.md, Deployment Coordination).
+// Rate, concurrency and quota limits. createUsageLimiter keeps state in
+// memory, which is correct only while all requests reach a single process
+// (the local dev server). Deployed functions use the Redis-backed limiter in
+// redisUsageLimiter.ts so every instance shares the same counters.
 
 export interface UsageLimits {
   perClientWindowMs: number;
@@ -12,75 +13,81 @@ export interface UsageLimits {
   maxDailyAnalyses: number;
 }
 
+export type LimitErrorCode = Extract<AnalysisErrorCode, 'rate_limited' | 'busy' | 'quota_exceeded'>;
+
 export type AcquireResult =
-  | { ok: true; release: () => void }
-  | { ok: false; code: Extract<AnalysisErrorCode, 'rate_limited' | 'busy' | 'quota_exceeded'>; retryAfterSeconds: number };
+  | { ok: true; release: () => Promise<void> }
+  | { ok: false; code: LimitErrorCode; retryAfterSeconds: number };
 
 export interface UsageLimiter {
-  tryAcquire(clientId: string): AcquireResult;
-  activeCount(): number;
+  tryAcquire(clientId: string): Promise<AcquireResult>;
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+export const DAY_MS = 24 * 60 * 60 * 1000;
 
-export function createUsageLimiter(limits: UsageLimits, now: () => number = Date.now): UsageLimiter {
+export function createUsageLimiter(
+  limits: UsageLimits,
+  now: () => number = Date.now,
+): UsageLimiter & { activeCount(): number } {
   const history = new Map<string, number[]>();
   const activeByClient = new Map<string, number>();
   let globalActive = 0;
   let quotaDay = Math.floor(now() / DAY_MS);
   let quotaUsed = 0;
 
-  return {
-    // Synchronous, so checks and the slot update happen atomically.
-    tryAcquire(clientId) {
-      const time = now();
+  function acquire(clientId: string): AcquireResult {
+    const time = now();
 
-      const day = Math.floor(time / DAY_MS);
-      if (day !== quotaDay) {
-        quotaDay = day;
-        quotaUsed = 0;
-      }
-      if (quotaUsed >= limits.maxDailyAnalyses) {
-        return { ok: false, code: 'quota_exceeded', retryAfterSeconds: Math.ceil(((day + 1) * DAY_MS - time) / 1000) };
-      }
+    const day = Math.floor(time / DAY_MS);
+    if (day !== quotaDay) {
+      quotaDay = day;
+      quotaUsed = 0;
+    }
+    if (quotaUsed >= limits.maxDailyAnalyses) {
+      return { ok: false, code: 'quota_exceeded', retryAfterSeconds: Math.ceil(((day + 1) * DAY_MS - time) / 1000) };
+    }
 
-      const recent = (history.get(clientId) ?? []).filter((t) => time - t < limits.perClientWindowMs);
-      history.set(clientId, recent);
-      const oldest = recent[0];
-      if (recent.length >= limits.perClientMaxRequests && oldest !== undefined) {
-        return {
-          ok: false,
-          code: 'rate_limited',
-          retryAfterSeconds: Math.max(1, Math.ceil((oldest + limits.perClientWindowMs - time) / 1000)),
-        };
-      }
-
-      const clientActive = activeByClient.get(clientId) ?? 0;
-      if (clientActive >= limits.maxActivePerClient) {
-        return { ok: false, code: 'rate_limited', retryAfterSeconds: 5 };
-      }
-      if (globalActive >= limits.maxGlobalConcurrent) {
-        return { ok: false, code: 'busy', retryAfterSeconds: 10 };
-      }
-
-      recent.push(time);
-      quotaUsed += 1;
-      activeByClient.set(clientId, clientActive + 1);
-      globalActive += 1;
-
-      let released = false;
+    const recent = (history.get(clientId) ?? []).filter((t) => time - t < limits.perClientWindowMs);
+    history.set(clientId, recent);
+    const oldest = recent[0];
+    if (recent.length >= limits.perClientMaxRequests && oldest !== undefined) {
       return {
-        ok: true,
-        release() {
-          if (released) return;
-          released = true;
-          globalActive -= 1;
-          const remaining = (activeByClient.get(clientId) ?? 1) - 1;
-          if (remaining <= 0) activeByClient.delete(clientId);
-          else activeByClient.set(clientId, remaining);
-        },
+        ok: false,
+        code: 'rate_limited',
+        retryAfterSeconds: Math.max(1, Math.ceil((oldest + limits.perClientWindowMs - time) / 1000)),
       };
-    },
+    }
+
+    const clientActive = activeByClient.get(clientId) ?? 0;
+    if (clientActive >= limits.maxActivePerClient) {
+      return { ok: false, code: 'rate_limited', retryAfterSeconds: 5 };
+    }
+    if (globalActive >= limits.maxGlobalConcurrent) {
+      return { ok: false, code: 'busy', retryAfterSeconds: 10 };
+    }
+
+    recent.push(time);
+    quotaUsed += 1;
+    activeByClient.set(clientId, clientActive + 1);
+    globalActive += 1;
+
+    let released = false;
+    return {
+      ok: true,
+      async release() {
+        if (released) return;
+        released = true;
+        globalActive -= 1;
+        const remaining = (activeByClient.get(clientId) ?? 1) - 1;
+        if (remaining <= 0) activeByClient.delete(clientId);
+        else activeByClient.set(clientId, remaining);
+      },
+    };
+  }
+
+  return {
+    // The checks and updates run synchronously, so they are atomic within one process.
+    tryAcquire: async (clientId) => acquire(clientId),
     activeCount: () => globalActive,
   };
 }

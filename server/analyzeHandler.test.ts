@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { ANALYSIS_LIMITS } from '../shared/analysis/limits.ts';
 import { AnalyzeResponseSchema, type AnalysisResult } from '../shared/analysis/schema.ts';
-import { createAnalyzeHandler, type HandlerDeps, type LogEntry } from './analyzeHandler.ts';
+import { createAnalyzeHandler, liveUnavailableReason, type HandlerDeps, type LogEntry } from './analyzeHandler.ts';
 import type { ServerConfig } from './config.ts';
 import type { ClipAnalyzer } from './types.ts';
 import { createUsageLimiter } from './usageLimiter.ts';
 
-const config: ServerConfig = { apiKey: 'test', model: 'test-model', analysisEnabled: true, port: 0 };
+const config: ServerConfig = {
+  apiKey: 'test',
+  model: 'test-model',
+  analysisEnabled: true,
+  port: 0,
+  redis: null,
+  requireSharedLimiter: false,
+};
 
 const result: AnalysisResult = {
   verdict: 'analyzed',
@@ -131,6 +138,28 @@ describe('analyze handler', () => {
     expect((await disabled.handler(upload(mp4Bytes), { clientId: 'a' })).status).toBe(503);
     const noKey = setup({ analyzer: null });
     expect((await noKey.handler(upload(mp4Bytes), { clientId: 'a' })).status).toBe(500);
+  });
+
+  it('fails closed with 503 when the limiter store is unreachable', async () => {
+    let called = false;
+    const analyzer: ClipAnalyzer = async () => {
+      called = true;
+      return { ok: true, result };
+    };
+    const limiter = {
+      tryAcquire: async () => {
+        throw new Error('redis down');
+      },
+    };
+    const { handler } = setup({ analyzer, limiter });
+    const response = await handler(upload(mp4Bytes), { clientId: 'a' });
+    expect(response.status).toBe(503);
+    expect(called).toBe(false);
+  });
+
+  it('reports live analysis unavailable when a deployment has no shared limiter', () => {
+    expect(liveUnavailableReason({ ...config, requireSharedLimiter: true, redis: null })).not.toBeNull();
+    expect(liveUnavailableReason({ ...config, requireSharedLimiter: true, redis: { url: 'u', token: 't' } })).toBeNull();
   });
 
   it('does not leak provider details in error responses', async () => {

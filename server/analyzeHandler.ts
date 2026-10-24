@@ -70,6 +70,7 @@ function json(body: AnalyzeResponse | HealthResponse, status: number, retryAfter
 export function liveUnavailableReason(config: ServerConfig): string | null {
   if (!config.analysisEnabled) return MESSAGES.analysis_disabled;
   if (!config.apiKey) return MESSAGES.server_misconfigured;
+  if (config.requireSharedLimiter && !config.redis) return MESSAGES.server_misconfigured;
   return null;
 }
 
@@ -111,7 +112,13 @@ export function createAnalyzeHandler(deps: HandlerDeps) {
       return fail('payload_too_large', { detail: 'content-length' });
     }
 
-    const slot = deps.limiter.tryAcquire(ctx.clientId);
+    let slot;
+    try {
+      slot = await deps.limiter.tryAcquire(ctx.clientId);
+    } catch {
+      // Fail closed: without the shared limiter we cannot enforce usage limits.
+      return fail('busy', { detail: 'limiter unavailable', retryAfterSeconds: 30 });
+    }
     if (!slot.ok) return fail(slot.code, { retryAfterSeconds: slot.retryAfterSeconds });
 
     try {
@@ -143,7 +150,8 @@ export function createAnalyzeHandler(deps: HandlerDeps) {
     } catch {
       return fail('provider_error', { detail: 'unexpected error' });
     } finally {
-      slot.release();
+      // A failed release is not fatal: the slot's lease expires on its own.
+      await slot.release().catch(() => {});
     }
   };
 }

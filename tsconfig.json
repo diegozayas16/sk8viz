@@ -1,21 +1,24 @@
 {
+  // Server-side TypeScript: Vercel functions (api/), server/, and shared/.
+  // Vercel reads this root file when compiling functions. Browser code uses
+  // tsconfig.app.json.
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023"],
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "types": ["node"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "isolatedModules": true,
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["server", "shared", "vite.config.ts"]
+  "include": ["api", "server", "shared", "vite.config.ts"]
 }

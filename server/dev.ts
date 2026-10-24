@@ -1,18 +1,16 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { Readable } from 'node:stream';
 import { ANALYSIS_LIMITS } from '../shared/analysis/limits.ts';
-import { createAnalyzeHandler, createHealthHandler, liveUnavailableReason } from './analyzeHandler.ts';
+import { liveUnavailableReason } from './analyzeHandler.ts';
+import { createApp } from './app.ts';
 import { loadConfig } from './config.ts';
-import { createGeminiAnalyzer } from './services/gemini.ts';
-import { createUsageLimiter } from './usageLimiter.ts';
 
 // Local API server. Adapts Node requests to the platform-neutral handlers.
-// Run with `npm run dev:api`.
+// Run with `npm run dev:api`. Uses the in-memory limiter unless Upstash
+// credentials are set in .env.
 
 const config = loadConfig();
-const analyzer = config.apiKey ? createGeminiAnalyzer(config.apiKey, config.model) : null;
-const analyze = createAnalyzeHandler({ config, analyzer, limiter: createUsageLimiter(ANALYSIS_LIMITS) });
-const health = createHealthHandler(config);
+const { analyze, health } = createApp(config);
 
 function toRequest(req: IncomingMessage, signal: AbortSignal): Request {
   const headers = new Headers();
@@ -79,6 +77,7 @@ const server = createServer(async (req, res) => {
 
 server.listen(config.port, () => {
   const unavailable = liveUnavailableReason(config);
-  console.log(`Sk8viz API listening on http://localhost:${config.port} (model ${config.model})`);
+  const limiter = config.redis ? 'shared Redis' : 'in-memory';
+  console.log(`Sk8viz API listening on http://localhost:${config.port} (model ${config.model}, ${limiter} limits)`);
   if (unavailable) console.log(`Live analysis unavailable: ${unavailable}`);
 });

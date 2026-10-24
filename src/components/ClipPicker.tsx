@@ -26,6 +26,7 @@ export function ClipPicker({ state, onSelect, disabled }: ClipPickerProps) {
           <span id={hintId} className="block text-sm text-zinc-400">
             MP4, WebM, or MOV · up to {ANALYSIS_LIMITS.maxClipSeconds} seconds and {maxMb} MB
           </span>
+          <span className="block text-xs text-zinc-500">Tip: short clips recorded at 720p fit best.</span>
         </span>
         <input
           id={inputId}

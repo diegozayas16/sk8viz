@@ -1,12 +1,12 @@
 // Central resource limits for clip analysis. Shared by the browser (early,
 // friendly rejection) and the server (actual enforcement).
 //
-// Inline video sent to Gemini must keep the whole request under ~20 MB, and
-// base64 encoding inflates bytes by ~4/3, so raw clips are capped at 12 MB.
-// These values are starting points to revisit once hosting is chosen.
+// Vercel Functions reject request bodies over 4.5 MB, so clips are capped at
+// 4 MB. (Gemini's inline video limit, ~20 MB per request, is not the binding
+// constraint.) Larger clips would need direct-to-storage uploads.
 
 export const ANALYSIS_LIMITS = {
-  maxClipBytes: 12 * 1024 * 1024,
+  maxClipBytes: 4 * 1024 * 1024,
   // Checked in the browser from video metadata; the server cannot verify
   // duration without decoding the file.
   maxClipSeconds: 30,
@@ -23,6 +23,9 @@ export const ANALYSIS_LIMITS = {
   maxActivePerClient: 1,
   maxGlobalConcurrent: 2,
   maxDailyAnalyses: 100,
+  // How long a concurrency slot is held if a function dies without releasing
+  // it. Must exceed the analysis timeout so a live request never loses its slot.
+  slotLeaseMs: 2 * 60_000,
 } as const;
 
 // Browser-reported type -> type sent to Gemini.
