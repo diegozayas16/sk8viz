@@ -1,7 +1,8 @@
-import { FileVideo, Loader2 } from 'lucide-react';
+import { FileVideo } from 'lucide-react';
 import { useId } from 'react';
 import { ANALYSIS_LIMITS } from '../../shared/analysis/limits.ts';
 import type { ClipSelectionState } from '../hooks/useClipSelection.ts';
+import { ClipStatus } from './ClipStatus.tsx';
 
 interface ClipPickerProps {
   state: ClipSelectionState;
@@ -38,33 +39,7 @@ export function ClipPicker({ state, onSelect, disabled }: ClipPickerProps) {
           onChange={(event) => onSelect(event.target.files?.[0] ?? null)}
         />
       </label>
-
-      {state.status === 'checking' && (
-        <p className="flex items-center gap-2 text-sm text-zinc-400" role="status">
-          <Loader2 aria-hidden="true" className="size-4 animate-spin" />
-          Checking {state.fileName}…
-        </p>
-      )}
-      {state.status === 'invalid' && (
-        <p className="text-sm text-red-400" role="alert">
-          {state.message}
-        </p>
-      )}
-      {state.status === 'ready' && (
-        <figure className="space-y-2">
-          <video
-            src={state.clip.previewUrl}
-            controls
-            muted
-            playsInline
-            className="aspect-video w-full rounded-xl bg-black"
-          />
-          <figcaption className="text-sm text-zinc-400">
-            {state.clip.file.name} · {state.clip.durationSeconds.toFixed(1)} s ·{' '}
-            {(state.clip.file.size / 1024 / 1024).toFixed(1)} MB
-          </figcaption>
-        </figure>
-      )}
+      <ClipStatus state={state} />
     </div>
   );
 }

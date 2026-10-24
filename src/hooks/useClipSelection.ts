@@ -50,8 +50,10 @@ export function useClipSelection() {
 
   useEffect(() => releaseUrl, [releaseUrl]);
 
+  // knownDurationSeconds skips the metadata probe. Browser recordings need
+  // this: Chrome's WebM recordings report an infinite duration.
   const select = useCallback(
-    async (file: File | null) => {
+    async (file: File | null, knownDurationSeconds?: number) => {
       const token = ++tokenRef.current;
       releaseUrl();
       if (!file) return setState({ status: 'empty' });
@@ -65,7 +67,7 @@ export function useClipSelection() {
 
       setState({ status: 'checking', fileName: file.name });
       const url = URL.createObjectURL(file);
-      const duration = await probeDuration(url);
+      const duration = knownDurationSeconds ?? (await probeDuration(url));
       if (token !== tokenRef.current) return URL.revokeObjectURL(url);
 
       if (duration === null) {

@@ -30,7 +30,7 @@ Verified 2026-10-24 against `package.json` and working code:
 - Hosting: Vercel (not yet deployed). `api/analyze.ts` and `api/health.ts` are Vercel Functions (Node.js 24, Web `fetch` export). Vercel compiles them using the root `tsconfig.json`, which rewrites `.ts` imports to `.js`. `npx vercel build` succeeds locally.
 - Rate limits: shared Upstash Redis limiter (`server/redisUsageLimiter.ts`, one atomic Lua script, slots are expiring leases) when Upstash credentials are set; in-memory limiter (`server/usageLimiter.ts`) otherwise. On Vercel (`VERCEL=1`) live analysis is disabled unless Redis is configured. The Lua script has not yet run against a real Redis.
 - Clip size is capped at 4 MB because Vercel Functions reject request bodies over 4.5 MB.
-- MVP input: upload of one short clip. Camera capture is not implemented.
+- Clip input: upload a file, or record in the browser (`src/hooks/useCameraRecorder.ts`, settings in `src/services/recording.ts`). Recording uses `getUserMedia` (video only, rear camera by default) and `MediaRecorder` (MP4 preferred, WebM fallback, ~0.9 Mbps), stops at 30 s or near the size limit, and always releases the camera. Recordings pass their measured duration to `useClipSelection` because Chrome's WebM recordings report an infinite duration. The browser pane blocks real cameras; recording was verified there with a canvas-backed fake `getUserMedia`, not on a phone.
 
 Where things live:
 

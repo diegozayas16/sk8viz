@@ -1,16 +1,30 @@
-import { Loader2, Sparkles } from 'lucide-react';
+import { FlaskConical, Loader2, Radio, Sparkles, Upload, Video } from 'lucide-react';
 import { useState } from 'react';
 import { AnalysisError } from './components/AnalysisError.tsx';
 import { AnalysisResultCard } from './components/AnalysisResultCard.tsx';
+import { CameraRecorder } from './components/CameraRecorder.tsx';
 import { ClipPicker } from './components/ClipPicker.tsx';
-import { ModeToggle } from './components/ModeToggle.tsx';
+import { SegmentedControl } from './components/SegmentedControl.tsx';
 import { useAnalysis } from './hooks/useAnalysis.ts';
 import { useClipSelection } from './hooks/useClipSelection.ts';
 import { useLiveAvailability } from './hooks/useLiveAvailability.ts';
 import type { AnalysisMode } from './types/analysis.ts';
 
+type ClipSource = 'upload' | 'record';
+
+const MODE_OPTIONS = [
+  { value: 'live', label: 'Live analysis', Icon: Radio },
+  { value: 'demo', label: 'Demo data', Icon: FlaskConical },
+] as const;
+
+const SOURCE_OPTIONS = [
+  { value: 'upload', label: 'Upload clip', Icon: Upload },
+  { value: 'record', label: 'Record', Icon: Video },
+] as const;
+
 export default function App() {
   const [mode, setMode] = useState<AnalysisMode>('live');
+  const [source, setSource] = useState<ClipSource>('upload');
   const clipSelection = useClipSelection();
   const analysis = useAnalysis();
   const health = useLiveAvailability();
@@ -25,9 +39,15 @@ export default function App() {
     setMode(next);
   };
 
-  const selectClip = (file: File | null) => {
+  const selectClip = (file: File | null, knownDurationSeconds?: number) => {
     analysis.reset();
-    void clipSelection.select(file);
+    void clipSelection.select(file, knownDurationSeconds);
+  };
+
+  // Each source starts fresh so an uploaded clip never shows on the record tab.
+  const changeSource = (next: ClipSource) => {
+    selectClip(null);
+    setSource(next);
   };
 
   return (
@@ -39,7 +59,14 @@ export default function App() {
           </h1>
           <p className="text-sm text-zinc-400">AI coaching feedback for your skate clips</p>
         </div>
-        <ModeToggle mode={mode} onChange={changeMode} disabled={analyzing} />
+        <SegmentedControl
+          legend="Analysis mode"
+          name="analysis-mode"
+          value={mode}
+          options={MODE_OPTIONS}
+          onChange={changeMode}
+          disabled={analyzing}
+        />
       </header>
 
       {mode === 'live' && liveUnavailable && (
@@ -55,7 +82,21 @@ export default function App() {
         </div>
       )}
 
-      <ClipPicker state={clipSelection.state} onSelect={selectClip} disabled={analyzing} />
+      <section className="space-y-3" aria-label="Your clip">
+        <SegmentedControl
+          legend="Clip source"
+          name="clip-source"
+          value={source}
+          options={SOURCE_OPTIONS}
+          onChange={changeSource}
+          disabled={analyzing}
+        />
+        {source === 'upload' ? (
+          <ClipPicker state={clipSelection.state} onSelect={selectClip} disabled={analyzing} />
+        ) : (
+          <CameraRecorder clipState={clipSelection.state} onRecorded={selectClip} disabled={analyzing} />
+        )}
+      </section>
 
       <div className="space-y-2">
         <button
