@@ -18,6 +18,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "shared"],
-  "exclude": ["**/*.test.ts"]
+  "include": ["src", "shared"]
 }
