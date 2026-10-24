@@ -1,4 +1,4 @@
-import { FlaskConical, Loader2, Radio, Sparkles, Upload, Video } from 'lucide-react';
+import { FlaskConical, Loader2, Sparkles, Upload, Video } from 'lucide-react';
 import { useState } from 'react';
 import { AnalysisError } from './components/AnalysisError.tsx';
 import { AnalysisResultCard } from './components/AnalysisResultCard.tsx';
@@ -8,14 +8,8 @@ import { SegmentedControl } from './components/SegmentedControl.tsx';
 import { useAnalysis } from './hooks/useAnalysis.ts';
 import { useClipSelection } from './hooks/useClipSelection.ts';
 import { useLiveAvailability } from './hooks/useLiveAvailability.ts';
-import type { AnalysisMode } from './types/analysis.ts';
 
 type ClipSource = 'upload' | 'record';
-
-const MODE_OPTIONS = [
-  { value: 'live', label: 'Live analysis', Icon: Radio },
-  { value: 'demo', label: 'Demo data', Icon: FlaskConical },
-] as const;
 
 const SOURCE_OPTIONS = [
   { value: 'upload', label: 'Upload clip', Icon: Upload },
@@ -23,7 +17,6 @@ const SOURCE_OPTIONS = [
 ] as const;
 
 export default function App() {
-  const [mode, setMode] = useState<AnalysisMode>('live');
   const [source, setSource] = useState<ClipSource>('upload');
   const clipSelection = useClipSelection();
   const analysis = useAnalysis();
@@ -32,12 +25,10 @@ export default function App() {
   const clip = clipSelection.state.status === 'ready' ? clipSelection.state.clip : null;
   const analyzing = analysis.state.status === 'analyzing';
   const liveUnavailable = health !== null && !health.liveAnalysisAvailable;
-  const canAnalyze = !analyzing && (mode === 'demo' || (clip !== null && health?.liveAnalysisAvailable === true));
+  const canAnalyze = !analyzing && clip !== null && health?.liveAnalysisAvailable === true;
 
-  const changeMode = (next: AnalysisMode) => {
-    analysis.reset();
-    setMode(next);
-  };
+  // Demo data is only ever shown on an explicit tap, always with its label.
+  const showExample = () => void analysis.run('demo', null);
 
   const selectClip = (file: File | null, knownDurationSeconds?: number) => {
     analysis.reset();
@@ -52,32 +43,23 @@ export default function App() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6 px-4 py-8">
-      <header className="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-black tracking-tight">
-            Sk8<span className="text-lime-400">viz</span>
-          </h1>
-          <p className="text-sm text-zinc-400">AI coaching feedback for your skate clips</p>
-        </div>
-        <SegmentedControl
-          legend="Analysis mode"
-          name="analysis-mode"
-          value={mode}
-          options={MODE_OPTIONS}
-          onChange={changeMode}
-          disabled={analyzing}
-        />
+      <header>
+        <h1 className="text-3xl font-black tracking-tight">
+          Sk8<span className="text-lime-400">viz</span>
+        </h1>
+        <p className="text-sm text-zinc-400">AI coaching feedback for your skate clips</p>
       </header>
 
-      {mode === 'live' && liveUnavailable && (
+      {liveUnavailable && (
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-zinc-900 p-4 text-sm">
           <span className="text-zinc-300">Live analysis is unavailable: {health.reason}</span>
           <button
             type="button"
-            onClick={() => changeMode('demo')}
+            onClick={showExample}
+            disabled={analyzing}
             className="rounded-lg bg-zinc-800 px-3 py-1.5 font-medium hover:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-lime-400"
           >
-            Switch to demo mode
+            See an example
           </button>
         </div>
       )}
@@ -102,7 +84,7 @@ export default function App() {
         <button
           type="button"
           disabled={!canAnalyze}
-          onClick={() => void analysis.run(mode, clip)}
+          onClick={() => void analysis.run('live', clip)}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-lime-400 px-4 py-3 font-bold text-zinc-950 transition hover:bg-lime-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {analyzing ? (
@@ -110,13 +92,20 @@ export default function App() {
           ) : (
             <Sparkles aria-hidden="true" className="size-5" />
           )}
-          {analyzing ? 'Analyzing…' : mode === 'demo' ? 'Show demo analysis' : 'Analyze clip'}
+          {analyzing ? 'Analyzing…' : 'Analyze clip'}
         </button>
         <p className="text-xs text-zinc-500">
-          {mode === 'live'
-            ? "When you click Analyze, your clip is sent to Google's Gemini API for AI processing. Sk8viz does not store it."
-            : 'Demo mode shows fixed sample feedback. Nothing is uploaded.'}
+          When you click Analyze, your clip is sent to Google's Gemini API for AI processing. Sk8viz does not store it.
         </p>
+        <button
+          type="button"
+          onClick={showExample}
+          disabled={analyzing}
+          className="flex items-center gap-1.5 rounded text-sm text-zinc-400 underline-offset-4 hover:text-zinc-200 hover:underline focus-visible:outline-2 focus-visible:outline-lime-400 disabled:opacity-50"
+        >
+          <FlaskConical aria-hidden="true" className="size-4" />
+          Not ready to film? See an example of the feedback
+        </button>
       </div>
 
       <div aria-live="polite" className="space-y-4">
@@ -125,7 +114,7 @@ export default function App() {
           <AnalysisResultCard result={analysis.state.result} mode={analysis.state.mode} />
         )}
         {analysis.state.status === 'error' && (
-          <AnalysisError error={analysis.state.error} onUseDemo={() => changeMode('demo')} />
+          <AnalysisError error={analysis.state.error} onUseDemo={showExample} />
         )}
       </div>
     </div>

@@ -37,7 +37,7 @@ export function AnalysisError({ error, onUseDemo }: AnalysisErrorProps) {
           onClick={onUseDemo}
           className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium hover:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-lime-400"
         >
-          Switch to demo mode
+          See an example instead
         </button>
       )}
     </div>
