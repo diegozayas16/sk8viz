@@ -20,5 +20,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["api", "server", "shared", "vite.config.ts"]
+  "include": ["api", "server", "shared", "eval", "vite.config.ts"]
 }

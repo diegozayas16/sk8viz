@@ -9,6 +9,7 @@
     "dev:api": "node --env-file-if-exists=.env server/dev.ts",
     "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.json",
     "test": "vitest run",
+    "eval": "node --env-file-if-exists=.env eval/run.ts",
     "build": "npm run typecheck && vite build",
     "preview": "vite preview"
   },

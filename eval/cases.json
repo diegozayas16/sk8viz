@@ -1,0 +1,17 @@
+[
+  {
+    "file": "ollie-landed.mp4",
+    "notes": "Example: clean ollie on flat ground, rolls away",
+    "expect": { "verdict": "analyzed", "trick": "ollie", "landed": "yes" }
+  },
+  {
+    "file": "kickflip-bail.mp4",
+    "notes": "Example: kickflip attempt, board flips but I fall off",
+    "expect": { "verdict": "analyzed", "trick": "kickflip", "landed": "no" }
+  },
+  {
+    "file": "no-skating.mp4",
+    "notes": "Example: footage of a sidewalk with no skater",
+    "expect": { "verdict": "insufficient_evidence" }
+  }
+]
