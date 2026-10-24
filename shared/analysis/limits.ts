@@ -10,6 +10,10 @@ export const ANALYSIS_LIMITS = {
   // Checked in the browser from video metadata; the server cannot verify
   // duration without decoding the file.
   maxClipSeconds: 30,
+  // Frames per second Gemini samples from the clip (provider default is 1,
+  // max 24). Tricks happen in under a second, so 1 fps misses the pop and
+  // flight. Token cost grows linearly with this value.
+  videoSampleFps: 8,
   analysisTimeoutMs: 60_000,
   // No automatic server-side retries: a timed-out request may still be
   // processed (and billed) by the provider.

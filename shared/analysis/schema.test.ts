@@ -42,4 +42,11 @@ describe('toGeminiResponseSchema', () => {
     expect(json).toContain('insufficientEvidenceReason');
     expect(json).toContain('"required"');
   });
+
+  it('orders observations before the trick so evidence comes first', () => {
+    const schema = toGeminiResponseSchema() as { propertyOrdering?: string[] };
+    const order = schema.propertyOrdering ?? [];
+    expect(order[0]).toBe('observations');
+    expect(order.indexOf('observations')).toBeLessThan(order.indexOf('trick'));
+  });
 });

@@ -30,7 +30,13 @@ export function createGeminiAnalyzer(apiKey: string, model: string): ClipAnalyze
         contents: [
           {
             role: 'user',
-            parts: [{ text: USER_PROMPT }, { inlineData: { mimeType, data: Buffer.from(bytes).toString('base64') } }],
+            parts: [
+              { text: USER_PROMPT },
+              {
+                inlineData: { mimeType, data: Buffer.from(bytes).toString('base64') },
+                videoMetadata: { fps: ANALYSIS_LIMITS.videoSampleFps },
+              },
+            ],
           },
         ],
         config: {

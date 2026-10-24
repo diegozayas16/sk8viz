@@ -40,6 +40,8 @@ function sanitize(node: unknown): unknown {
     if (!SUPPORTED_KEYWORDS.has(key)) continue;
     if (SCHEMA_MAPS.has(key) && value !== null && typeof value === 'object') {
       out[key] = Object.fromEntries(Object.entries(value).map(([name, schema]) => [name, sanitize(schema)]));
+      // Make the model generate fields in schema order (see schema.ts).
+      if (key === 'properties') out.propertyOrdering = Object.keys(value);
     } else {
       out[key] = sanitize(value);
     }

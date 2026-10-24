@@ -2,20 +2,14 @@ import { z } from 'zod';
 
 // Contract for one coaching analysis. The same schema validates the model's
 // output on the server and the API response in the browser.
+//
+// Field order matters: the model generates fields in this order, so it
+// records what it saw before it names the trick or judges the evidence.
 
 export const TrickPhaseSchema = z.enum(['setup', 'pop', 'flight', 'landing', 'general']);
 
 export const AnalysisResultSchema = z
   .object({
-    verdict: z
-      .enum(['analyzed', 'insufficient_evidence'])
-      .describe('Use insufficient_evidence when the footage does not clearly show skateboarding.'),
-    summary: z.string().min(1).max(600).describe('Two or three sentences describing what is visible.'),
-    trick: z.object({
-      name: z.string().min(1).max(80).nullable().describe('Trick name, or null if it cannot be identified.'),
-      landed: z.enum(['yes', 'no', 'unclear']),
-      confidence: z.enum(['low', 'medium', 'high']),
-    }),
     observations: z
       .array(
         z.object({
@@ -24,7 +18,17 @@ export const AnalysisResultSchema = z
           timestampSeconds: z.number().min(0).max(120).nullable(),
         }),
       )
-      .max(8),
+      .max(8)
+      .describe('Visible facts in time order, including any obstacle and what the board touches.'),
+    trick: z.object({
+      name: z.string().min(1).max(80).nullable().describe('Trick name, or null if it cannot be identified.'),
+      landed: z.enum(['yes', 'no', 'unclear']),
+      confidence: z.enum(['low', 'medium', 'high']),
+    }),
+    verdict: z
+      .enum(['analyzed', 'insufficient_evidence'])
+      .describe('Use insufficient_evidence when the footage does not clearly show skateboarding.'),
+    summary: z.string().min(1).max(600).describe('Two or three sentences describing what is visible.'),
     tips: z
       .array(
         z.object({
