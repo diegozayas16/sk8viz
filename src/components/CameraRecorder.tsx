@@ -4,6 +4,7 @@ import { ANALYSIS_LIMITS } from '../../shared/analysis/limits.ts';
 import type { ClipSelectionState } from '../hooks/useClipSelection.ts';
 import { useCameraRecorder } from '../hooks/useCameraRecorder.ts';
 import { ClipStatus } from './ClipStatus.tsx';
+import { CornerMarks } from './CornerMarks.tsx';
 
 interface CameraRecorderProps {
   clipState: ClipSelectionState;
@@ -12,7 +13,9 @@ interface CameraRecorderProps {
 }
 
 const BUTTON =
-  'flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 font-semibold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lime-400 disabled:cursor-not-allowed disabled:opacity-50';
+  'flex min-h-14 items-center justify-center gap-2 px-4 font-semibold transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50';
+const RECORD_BUTTON = `${BUTTON} display flex-1 bg-rec text-xl leading-none text-white font-stretch-condensed hover:bg-[#ff5a50]`;
+const QUIET_BUTTON = `${BUTTON} border border-edge hover:border-ink`;
 
 function formatClock(seconds: number) {
   const whole = Math.floor(seconds);
@@ -30,7 +33,7 @@ export function CameraRecorder({ clipState, onRecorded, disabled }: CameraRecord
 
   if (camera.state.status === 'starting') {
     return (
-      <p className="flex items-center gap-2 rounded-xl bg-zinc-900 p-5 text-sm text-zinc-300" role="status">
+      <p className="flex items-center gap-2 border border-line bg-surface p-5 text-sm text-body" role="status">
         <Loader2 aria-hidden="true" className="size-4 animate-spin" />
         Starting camera… allow camera access if your browser asks.
       </p>
@@ -42,7 +45,8 @@ export function CameraRecorder({ clipState, onRecorded, disabled }: CameraRecord
     const elapsed = camera.state.status === 'recording' ? camera.state.elapsedSeconds : 0;
     return (
       <div className="space-y-3">
-        <div className="relative overflow-hidden rounded-xl bg-black">
+        <div className="relative overflow-hidden border border-line bg-black">
+          <CornerMarks />
           <video
             ref={videoRef}
             autoPlay
@@ -53,10 +57,10 @@ export function CameraRecorder({ clipState, onRecorded, disabled }: CameraRecord
           />
           {recording && (
             <p
-              className="absolute left-3 top-3 flex items-center gap-2 rounded-full bg-black/70 px-3 py-1 text-sm font-semibold tabular-nums"
+              className="absolute left-1/2 top-4 flex -translate-x-1/2 items-center gap-2 bg-ground/80 px-2.5 py-1 font-mono text-[13px] tabular-nums"
               role="timer"
             >
-              <span aria-hidden="true" className="size-2.5 animate-pulse rounded-full bg-red-500" />
+              <span aria-hidden="true" className="size-2 animate-pulse rounded-full bg-rec" />
               {formatClock(elapsed)} / {formatClock(ANALYSIS_LIMITS.maxClipSeconds)}
             </p>
           )}
@@ -66,7 +70,7 @@ export function CameraRecorder({ clipState, onRecorded, disabled }: CameraRecord
         </p>
         <div className="flex flex-wrap gap-2">
           {recording ? (
-            <button type="button" onClick={camera.stop} className={`${BUTTON} flex-1 bg-red-500 text-white hover:bg-red-400`}>
+            <button type="button" onClick={camera.stop} className={RECORD_BUTTON}>
               <Square aria-hidden="true" className="size-4 fill-current" />
               Stop
             </button>
@@ -76,23 +80,23 @@ export function CameraRecorder({ clipState, onRecorded, disabled }: CameraRecord
                 type="button"
                 onClick={camera.record}
                 disabled={disabled}
-                className={`${BUTTON} flex-1 bg-red-500 text-white hover:bg-red-400`}
+                className={RECORD_BUTTON}
               >
                 <Circle aria-hidden="true" className="size-4 fill-current" />
                 Record
               </button>
-              <button type="button" onClick={camera.flip} className={`${BUTTON} bg-zinc-800 hover:bg-zinc-700`}>
+              <button type="button" onClick={camera.flip} className={QUIET_BUTTON}>
                 <SwitchCamera aria-hidden="true" className="size-4" />
                 <span className="sr-only sm:not-sr-only">Flip camera</span>
               </button>
-              <button type="button" onClick={camera.close} className={`${BUTTON} bg-zinc-800 hover:bg-zinc-700`}>
+              <button type="button" onClick={camera.close} className={QUIET_BUTTON}>
                 <X aria-hidden="true" className="size-4" />
                 <span className="sr-only sm:not-sr-only">Cancel</span>
               </button>
             </>
           )}
         </div>
-        <p className="text-xs text-zinc-500">
+        <p className="text-sm text-muted">
           Recording stops automatically at {ANALYSIS_LIMITS.maxClipSeconds} seconds. Point the camera so your whole body
           and board stay in frame.
         </p>
@@ -104,7 +108,7 @@ export function CameraRecorder({ clipState, onRecorded, disabled }: CameraRecord
   return (
     <div className="space-y-3">
       {camera.state.status === 'error' && (
-        <p className="rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200" role="alert">
+        <p className="border border-danger/60 p-3 text-sm text-danger" role="alert">
           {camera.state.message}
         </p>
       )}
@@ -113,13 +117,18 @@ export function CameraRecorder({ clipState, onRecorded, disabled }: CameraRecord
         type="button"
         onClick={camera.start}
         disabled={disabled}
-        className={`${BUTTON} w-full ${hasClip ? 'bg-zinc-800 hover:bg-zinc-700' : 'border-2 border-dashed border-zinc-700 bg-transparent py-5 hover:border-lime-400'}`}
+        className={`${BUTTON} w-full ${hasClip ? 'border border-edge hover:border-ink' : 'display relative aspect-[4/3] flex-col gap-3 border border-edge bg-surface text-[26px] font-stretch-condensed hover:border-ink sm:aspect-[16/10]'}`}
       >
-        {hasClip ? <RotateCcw aria-hidden="true" className="size-5" /> : <Camera aria-hidden="true" className="size-6 text-lime-400" />}
+        {!hasClip && <CornerMarks className="border-accent" />}
+        {hasClip ? (
+          <RotateCcw aria-hidden="true" className="size-5" />
+        ) : (
+          <Camera aria-hidden="true" strokeWidth={1.5} className="size-10" />
+        )}
         {hasClip ? 'Record again' : camera.state.status === 'error' ? 'Try the camera again' : 'Start camera'}
       </button>
       {!hasClip && (
-        <p className="text-xs text-zinc-500">
+        <p className="text-sm text-muted">
           Your browser will ask to use the camera. The video stays on your device until you click Analyze.
         </p>
       )}

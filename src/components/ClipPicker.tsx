@@ -1,8 +1,9 @@
-import { FileVideo } from 'lucide-react';
+import { Upload } from 'lucide-react';
 import { useId } from 'react';
 import { ANALYSIS_LIMITS } from '../../shared/analysis/limits.ts';
 import type { ClipSelectionState } from '../hooks/useClipSelection.ts';
 import { ClipStatus } from './ClipStatus.tsx';
+import { CornerMarks } from './CornerMarks.tsx';
 
 interface ClipPickerProps {
   state: ClipSelectionState;
@@ -14,20 +15,24 @@ export function ClipPicker({ state, onSelect, disabled }: ClipPickerProps) {
   const inputId = useId();
   const hintId = useId();
   const maxMb = ANALYSIS_LIMITS.maxClipBytes / 1024 / 1024;
+  const hasClip = state.status === 'ready';
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
+      <ClipStatus state={state} />
       <label
         htmlFor={inputId}
-        className="flex cursor-pointer items-center gap-3 rounded-xl border-2 border-dashed border-zinc-700 p-5 transition hover:border-lime-400 has-[:focus-visible]:border-lime-400 has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60"
+        className={`group relative flex cursor-pointer flex-col items-center justify-center gap-3 border border-edge bg-surface p-6 text-center transition-colors hover:border-ink has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 ${
+          hasClip ? 'min-h-24' : 'aspect-[4/3] sm:aspect-[16/10]'
+        }`}
       >
-        <FileVideo aria-hidden="true" className="size-8 shrink-0 text-lime-400" />
-        <span>
-          <span className="block font-semibold">Choose a skate clip</span>
-          <span id={hintId} className="block text-sm text-zinc-400">
-            MP4, WebM, or MOV · up to {ANALYSIS_LIMITS.maxClipSeconds} seconds and {maxMb} MB
-          </span>
-          <span className="block text-xs text-zinc-500">Tip: short clips recorded at 720p fit best.</span>
+        {!hasClip && <CornerMarks className="border-accent" />}
+        <Upload aria-hidden="true" strokeWidth={1.5} className={hasClip ? 'size-6' : 'size-10'} />
+        <span className={`display font-stretch-condensed ${hasClip ? 'text-xl' : 'text-[26px]'}`}>
+          {hasClip ? 'Choose a different clip' : 'Choose a skate clip'}
+        </span>
+        <span id={hintId} className="font-mono text-xs tracking-[0.06em] text-muted">
+          MP4 · WEBM · MOV — UP TO {ANALYSIS_LIMITS.maxClipSeconds} S, {maxMb} MB
         </span>
         <input
           id={inputId}
@@ -39,7 +44,9 @@ export function ClipPicker({ state, onSelect, disabled }: ClipPickerProps) {
           onChange={(event) => onSelect(event.target.files?.[0] ?? null)}
         />
       </label>
-      <ClipStatus state={state} />
+      {!hasClip && (
+        <p className="text-sm text-muted">Short clips at 720p fit best. Keep your whole body and board in frame.</p>
+      )}
     </div>
   );
 }

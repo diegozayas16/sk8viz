@@ -1,4 +1,3 @@
-import { KeyRound } from 'lucide-react';
 import { useId } from 'react';
 
 interface AccessCodeFieldProps {
@@ -13,9 +12,8 @@ export function AccessCodeField({ value, onChange, disabled }: AccessCodeFieldPr
   const inputId = useId();
   const hintId = useId();
   return (
-    <div className="space-y-1.5">
-      <label htmlFor={inputId} className="flex items-center gap-2 text-sm font-medium text-zinc-300">
-        <KeyRound aria-hidden="true" className="size-4 text-lime-400" />
+    <div className="flex flex-col gap-2">
+      <label htmlFor={inputId} className="eyebrow">
         Access code
       </label>
       <input
@@ -26,10 +24,10 @@ export function AccessCodeField({ value, onChange, disabled }: AccessCodeFieldPr
         disabled={disabled}
         autoComplete="off"
         aria-describedby={hintId}
-        className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-zinc-100 placeholder:text-zinc-600 focus-visible:border-lime-400 focus-visible:outline-none disabled:opacity-50"
+        className="min-h-12 w-full border border-edge bg-surface px-3 text-ink placeholder:text-dim focus-visible:border-accent focus-visible:outline-none disabled:opacity-50"
         placeholder="Enter the code you were given"
       />
-      <p id={hintId} className="text-xs text-zinc-500">
+      <p id={hintId} className="text-[13px] text-dim">
         Live analysis is limited right now. Ask the Sk8viz team for a code, or see an example below.
       </p>
     </div>

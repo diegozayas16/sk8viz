@@ -20,13 +20,13 @@ const SERVICE_UNAVAILABLE = new Set<ClientError['code']>([
 
 export function AnalysisError({ error, onUseDemo }: AnalysisErrorProps) {
   return (
-    <div role="alert" className="space-y-3 rounded-2xl border border-red-500/40 bg-red-500/10 p-4">
-      <p className="flex gap-2 text-red-200">
-        <TriangleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0" />
+    <div role="alert" className="flex flex-col items-start gap-4 border border-danger/60 p-5">
+      <p className="flex gap-3 text-ink">
+        <TriangleAlert aria-hidden="true" className="mt-0.5 size-5 shrink-0 text-danger" />
         <span>
           {error.message}
           {error.retryAfterSeconds && (
-            <span className="block text-sm text-red-300">
+            <span className="mt-1 block font-mono text-xs uppercase tracking-[0.06em] text-muted">
               You can try again in about {Math.ceil(error.retryAfterSeconds / 60)} min.
             </span>
           )}
@@ -36,7 +36,7 @@ export function AnalysisError({ error, onUseDemo }: AnalysisErrorProps) {
         <button
           type="button"
           onClick={onUseDemo}
-          className="rounded-lg bg-zinc-800 px-3 py-1.5 text-sm font-medium hover:bg-zinc-700 focus-visible:outline-2 focus-visible:outline-lime-400"
+          className="min-h-11 border border-edge px-4 text-sm font-semibold hover:border-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
         >
           See an example instead
         </button>

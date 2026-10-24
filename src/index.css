@@ -1,9 +1,48 @@
 @import "tailwindcss";
 
+@theme {
+  --font-sans: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-ground: #141312;
+  --color-surface: #1a1917;
+  --color-raised: #2a2824;
+  --color-line: #34312c;
+  --color-line-soft: #2a2824;
+  --color-edge: #4a463f;
+  --color-ink: #efebe3;
+  --color-body: #d9d4ca;
+  --color-muted: #a39e94;
+  --color-dim: #8f8a80;
+  --color-accent: #ff6b2c;
+  --color-accent-hover: #ff8752;
+  --color-demo: #f2c14e;
+  --color-rec: #ff3b30;
+  --color-danger: #ff7a6b;
+}
+
 :root {
   color-scheme: dark;
 }
 
 body {
-  @apply bg-zinc-950 text-zinc-100 antialiased;
+  @apply bg-ground font-sans text-ink antialiased;
+}
+
+/* Small monospace section labels ("Your clip", "What we saw"). */
+@utility eyebrow {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-muted);
+}
+
+/* Heavy condensed caps for headlines, trick names and buttons. */
+@utility display {
+  font-weight: 900;
+  font-stretch: 62.5%;
+  text-transform: uppercase;
+  line-height: 0.88;
 }

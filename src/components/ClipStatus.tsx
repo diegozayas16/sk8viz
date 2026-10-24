@@ -6,7 +6,7 @@ import type { ClipSelectionState } from '../hooks/useClipSelection.ts';
 export function ClipStatus({ state }: { state: ClipSelectionState }) {
   if (state.status === 'checking') {
     return (
-      <p className="flex items-center gap-2 text-sm text-zinc-400" role="status">
+      <p className="flex items-center gap-2 text-sm text-muted" role="status">
         <Loader2 aria-hidden="true" className="size-4 animate-spin" />
         Checking {state.fileName}…
       </p>
@@ -14,16 +14,22 @@ export function ClipStatus({ state }: { state: ClipSelectionState }) {
   }
   if (state.status === 'invalid') {
     return (
-      <p className="text-sm text-red-400" role="alert">
+      <p className="border border-danger/60 p-3 text-sm text-danger" role="alert">
         {state.message}
       </p>
     );
   }
   if (state.status === 'ready') {
     return (
-      <figure className="space-y-2">
-        <video src={state.clip.previewUrl} controls muted playsInline className="aspect-video w-full rounded-xl bg-black" />
-        <figcaption className="text-sm text-zinc-400">
+      <figure className="flex flex-col gap-2">
+        <video
+          src={state.clip.previewUrl}
+          controls
+          muted
+          playsInline
+          className="aspect-video w-full border border-line bg-black"
+        />
+        <figcaption className="truncate font-mono text-xs text-muted">
           {state.clip.file.name} · {state.clip.durationSeconds.toFixed(1)} s ·{' '}
           {(state.clip.file.size / 1024 / 1024).toFixed(1)} MB
         </figcaption>
