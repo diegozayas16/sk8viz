@@ -67,7 +67,7 @@ All settings are server-side environment variables; none reach the browser.
 
 ## Limits
 
-To protect the free Gemini quota, each visitor gets 3 analyses per day (UTC)
+To protect the free Gemini quota, each visitor gets 10 analyses per day (UTC)
 and the whole site 35. One analysis runs at a time per visitor, and each one
 times out after 60 seconds. Attempts that never reached Gemini, or that Gemini
 turned away as busy or over its quota, do not count. The values live in
