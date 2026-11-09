@@ -3,14 +3,18 @@ import type { ClipStore, StoredClipRead } from '../types.ts';
 import { readLimitedBody } from '../readBody.ts';
 
 // Clips are uploaded as private blobs, so they can only be read with the
-// store's token. Lookups use the pathname (not a client-supplied URL), so a
-// request can never make the server fetch from another store or host.
-export function createBlobClipStore(token: string): ClipStore {
+// store's credentials. Lookups use the pathname (not a client-supplied URL),
+// so a request can never make the server fetch from another store or host.
+//
+// token: a read-write token, or null to let the SDK use Vercel's OIDC login
+// with BLOB_STORE_ID (how newer store connections are set up).
+export function createBlobClipStore(token: string | null): ClipStore {
+  const auth = token ? { token } : {};
   return {
     async read(pathname, maxBytes, signal): Promise<StoredClipRead> {
       let result;
       try {
-        result = await get(pathname, { access: 'private', token, useCache: false, abortSignal: signal });
+        result = await get(pathname, { access: 'private', ...auth, useCache: false, abortSignal: signal });
       } catch (error) {
         if (error instanceof BlobNotFoundError) return { ok: false, reason: 'not_found' };
         return { ok: false, reason: 'unavailable' };
@@ -31,7 +35,7 @@ export function createBlobClipStore(token: string): ClipStore {
     },
 
     async delete(pathname) {
-      await del(pathname, { token });
+      await del(pathname, auth);
     },
   };
 }

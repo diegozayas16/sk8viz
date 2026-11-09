@@ -72,7 +72,8 @@ All settings are server-side environment variables; none reach the browser.
 | `GEMINI_FALLBACK_MODEL` | No | Tried once when the main model is busy; `none` turns it off |
 | `ANALYSIS_ENABLED` | No | `false` switches live analysis off |
 | `ANALYSIS_ACCESS_CODE` | No | When set, visitors must enter this code to analyze |
-| `BLOB_READ_WRITE_TOKEN` | For clips over 4 MB | Vercel Blob token for temporary clip storage |
+| `BLOB_READ_WRITE_TOKEN` | For clips over 4 MB, locally | Vercel Blob token for temporary clip storage |
+| `BLOB_STORE_ID` | For clips over 4 MB, on Vercel | Set by connecting a Blob store; used with Vercel OIDC |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | On Vercel | Shared rate limits across function instances |
 
 ## Limits
@@ -101,7 +102,9 @@ tests and the type check first, and a failure stops the deploy. Vercel needs
 `GEMINI_API_KEY` and Upstash Redis credentials; without Redis, live analysis
 stays off on Vercel. For clips over 4 MB, create a Blob store in the Vercel
 dashboard (Storage → Create → Blob) and connect it to the project; that sets
-`BLOB_READ_WRITE_TOKEN`.
+`BLOB_STORE_ID`, which the app uses with Vercel's built-in OIDC sign-in.
+Preview deployments only see variables enabled for Preview, so enable
+`GEMINI_API_KEY` for Preview too if you want to test there.
 
 `vercel.json` also sets security headers, including a Content Security Policy
 that only allows the site's own scripts and Google Fonts.

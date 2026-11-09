@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { ANALYSIS_LIMITS } from '../shared/analysis/limits.ts';
 import { AnalyzeResponseSchema, type AnalysisResult } from '../shared/analysis/schema.ts';
-import { createAnalyzeHandler, liveUnavailableReason, type HandlerDeps, type LogEntry } from './analyzeHandler.ts';
+import {
+  createAnalyzeHandler,
+  createHealthHandler,
+  liveUnavailableReason,
+  type HandlerDeps,
+  type LogEntry,
+} from './analyzeHandler.ts';
 import type { ServerConfig } from './config.ts';
 import type { ClipAnalyzer, ClipInput, ClipStore, StoredClipRead } from './types.ts';
 import { createUsageLimiter } from './usageLimiter.ts';
@@ -16,6 +22,7 @@ const config: ServerConfig = {
   redis: null,
   requireSharedLimiter: false,
   blobToken: null,
+  blobStoreId: null,
 };
 
 const result: AnalysisResult = {
@@ -373,5 +380,23 @@ describe('analyze handler with stored (large) clips', () => {
     expect((await handler(storedRequest(validStored), { clientId: 'a' })).status).toBe(401);
     expect(reads).toEqual([]);
     expect(deleted).toEqual([]);
+  });
+});
+
+describe('health handler', () => {
+  const health = async (overrides: Partial<ServerConfig>) =>
+    (await createHealthHandler({ ...config, ...overrides })().json()) as Record<string, unknown>;
+
+  it('reports large uploads with either a read-write token or a store ID (Vercel OIDC)', async () => {
+    expect(await health({})).toMatchObject({ largeUploadsAvailable: false });
+    expect(await health({ blobToken: 'vercel_blob_rw_x' })).toMatchObject({ largeUploadsAvailable: true });
+    expect(await health({ blobStoreId: 'store_abc' })).toMatchObject({ largeUploadsAvailable: true });
+  });
+
+  it('reports large uploads off whenever live analysis is off', async () => {
+    expect(await health({ blobStoreId: 'store_abc', apiKey: null })).toMatchObject({
+      liveAnalysisAvailable: false,
+      largeUploadsAvailable: false,
+    });
   });
 });

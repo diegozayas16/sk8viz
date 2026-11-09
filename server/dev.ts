@@ -3,7 +3,7 @@ import { Readable } from 'node:stream';
 import { ANALYSIS_LIMITS } from '../shared/analysis/limits.ts';
 import { liveUnavailableReason } from './analyzeHandler.ts';
 import { createApp } from './app.ts';
-import { loadConfig } from './config.ts';
+import { largeUploadsConfigured, loadConfig } from './config.ts';
 
 // Local API server. Adapts Node requests to the platform-neutral handlers.
 // Run with `npm run dev:api`. Uses the in-memory limiter unless Upstash
@@ -82,7 +82,7 @@ const server = createServer(async (req, res) => {
 server.listen(config.port, () => {
   const unavailable = liveUnavailableReason(config);
   const limiter = config.redis ? 'shared Redis' : 'in-memory';
-  const uploads = config.blobToken ? 'large uploads on' : 'large uploads off (no BLOB_READ_WRITE_TOKEN)';
+  const uploads = largeUploadsConfigured(config) ? 'large uploads on' : 'large uploads off (no BLOB_READ_WRITE_TOKEN)';
   console.log(`Sk8viz API listening on http://localhost:${config.port} (model ${config.model}, ${limiter} limits, ${uploads})`);
   if (unavailable) console.log(`Live analysis unavailable: ${unavailable}`);
 });

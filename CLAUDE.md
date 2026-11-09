@@ -70,13 +70,21 @@ external boundaries. Server-only modules (`server/`) must never be imported by
   media only. New external origins must be added there. `vercel.live` is blocked.
 - **Two upload paths.** Clips ≤ 4 MB are POSTed to `/api/analyze?start=&end=`
   (Vercel rejects bodies over 4.5 MB) and sent inline to Gemini. Bigger clips
-  (≤ 100 MB, only when `BLOB_READ_WRITE_TOKEN` is set; see `largeUploadsAvailable`
-  in `/api/health`) upload from the browser to **private** Blob at
+  (≤ 100 MB, only when `BLOB_READ_WRITE_TOKEN` or `BLOB_STORE_ID` is set; see
+  `largeUploadsAvailable` in `/api/health`) upload from the browser to **private** Blob at
   `clips/<uuid>.<ext>`, then `/api/analyze` gets JSON `{ pathname, window }`.
   The server reads by pathname (never a client URL), uses Gemini's Files API,
   and deletes both the blob and the Gemini file on every path. Blobs also
   expire via `ttlDays` as a backup. CSP `connect-src` allows `https://vercel.com`
   for the Blob upload API.
+- **Blob auth has two modes.** Vercel's store connection sets only
+  `BLOB_STORE_ID` (OIDC via `VERCEL_OIDC_TOKEN`, read by the SDK); local dev
+  uses `BLOB_READ_WRITE_TOKEN`. So uploads use the **presigned** flow
+  (`handleUploadPresigned` + `issueSignedToken`, browser `uploadPresigned`),
+  which works with both. `handleUpload`/`upload` need a read-write token and
+  silently fail on Vercel. Pass `token` only when set, else let the SDK resolve OIDC.
+- **Preview deployments** only get env vars ticked for Preview. `GEMINI_API_KEY`
+  must include Preview, or previews report live analysis (and large uploads) off.
 - **Trim window** (max 60 s) is required on every analyze request and sent to
   Gemini as `startOffset`/`endOffset`; the server cannot read duration, so it
   enforces window length, which is what bounds cost. Recordings stay ≤ 30 s so

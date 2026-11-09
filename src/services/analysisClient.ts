@@ -16,8 +16,8 @@ const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
 export type AnalyzeOutcome = { ok: true; result: AnalysisResult } | { ok: false; error: ClientError } | { ok: false; aborted: true };
 
 // Clips up to the direct limit are posted to /api/analyze as before. Larger
-// clips are uploaded straight to private Blob storage (with a token from
-// /api/upload), then /api/analyze reads them from there and deletes them.
+// clips are uploaded straight to private Blob storage (with a presigned URL
+// from /api/upload), then /api/analyze reads them from there and deletes them.
 export async function analyzeClip(
   clip: SelectedClip,
   accessCode: string,
@@ -36,8 +36,8 @@ export async function analyzeClip(
     const pathname = storedClipPathname(crypto.randomUUID(), clip.type);
     try {
       // Loaded only when needed, so small clips never download the upload code.
-      const { upload } = await import('@vercel/blob/client');
-      await upload(pathname, clip.file, {
+      const { uploadPresigned } = await import('@vercel/blob/client');
+      await uploadPresigned(pathname, clip.file, {
         access: 'private',
         handleUploadUrl: '/api/upload',
         headers: codeHeader,

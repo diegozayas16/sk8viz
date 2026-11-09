@@ -8,7 +8,7 @@ import {
   type ClipWindow,
   type HealthResponse,
 } from '../shared/analysis/schema.ts';
-import type { ServerConfig } from './config.ts';
+import { largeUploadsConfigured, type ServerConfig } from './config.ts';
 import { matchesVideoSignature, readLimitedBody } from './readBody.ts';
 import type { ClipAnalyzer, ClipStore } from './types.ts';
 import type { UsageLimiter } from './usageLimiter.ts';
@@ -97,7 +97,7 @@ export function createHealthHandler(config: ServerConfig) {
         liveAnalysisAvailable: reason === null,
         reason,
         accessCodeRequired: config.accessCode !== null,
-        largeUploadsAvailable: reason === null && config.blobToken !== null,
+        largeUploadsAvailable: reason === null && largeUploadsConfigured(config),
       },
       200,
     );

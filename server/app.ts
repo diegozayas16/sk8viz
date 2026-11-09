@@ -1,7 +1,7 @@
 import { Redis } from '@upstash/redis';
 import { ANALYSIS_LIMITS } from '../shared/analysis/limits.ts';
 import { createAnalyzeHandler, createHealthHandler, liveUnavailableReason } from './analyzeHandler.ts';
-import type { ServerConfig } from './config.ts';
+import { largeUploadsConfigured, type ServerConfig } from './config.ts';
 import { createRedisUsageLimiter } from './redisUsageLimiter.ts';
 import { createBlobClipStore } from './services/blobStore.ts';
 import { createGeminiAnalyzer } from './services/gemini.ts';
@@ -23,7 +23,7 @@ export function createApp(config: ServerConfig) {
       config,
       analyzer,
       limiter: createLimiter(config),
-      clipStore: config.blobToken ? createBlobClipStore(config.blobToken) : null,
+      clipStore: largeUploadsConfigured(config) ? createBlobClipStore(config.blobToken) : null,
     }),
     upload: createUploadHandler({ config }),
     health: createHealthHandler(config),
