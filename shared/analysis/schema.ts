@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ANALYSIS_LIMITS, STORED_CLIP_PATHNAME } from './limits.ts';
 
 // Contract for one coaching analysis. The same schema validates the model's
 // output on the server and the API response in the browser.
@@ -95,6 +96,33 @@ export const HealthResponseSchema = z.object({
   liveAnalysisAvailable: z.boolean(),
   reason: z.string().nullable(),
   accessCodeRequired: z.boolean(),
+  // True when clips over the direct limit can go through Vercel Blob.
+  largeUploadsAvailable: z.boolean(),
 });
 
 export type HealthResponse = z.infer<typeof HealthResponseSchema>;
+
+// The part of the clip to analyze, in seconds from the start. The server
+// cannot read a video's duration without decoding it, so it enforces the
+// window length instead: Gemini only processes this stretch.
+export const ClipWindowSchema = z
+  .object({
+    startSeconds: z.number().finite().min(0).max(24 * 60 * 60),
+    endSeconds: z.number().finite().min(0).max(24 * 60 * 60),
+  })
+  .refine((w) => w.endSeconds - w.startSeconds >= ANALYSIS_LIMITS.minWindowSeconds - 0.001, {
+    message: `The analyzed part must be at least ${ANALYSIS_LIMITS.minWindowSeconds} second long.`,
+  })
+  .refine((w) => w.endSeconds - w.startSeconds <= ANALYSIS_LIMITS.maxWindowSeconds + 0.001, {
+    message: `The analyzed part can be at most ${ANALYSIS_LIMITS.maxWindowSeconds} seconds long.`,
+  });
+
+export type ClipWindow = z.infer<typeof ClipWindowSchema>;
+
+// JSON body of /api/analyze for a clip already uploaded to Blob storage.
+export const StoredClipRequestSchema = z.object({
+  pathname: z.string().regex(STORED_CLIP_PATHNAME),
+  window: ClipWindowSchema,
+});
+
+export type StoredClipRequest = z.infer<typeof StoredClipRequestSchema>;

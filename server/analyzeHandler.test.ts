@@ -3,7 +3,7 @@ import { ANALYSIS_LIMITS } from '../shared/analysis/limits.ts';
 import { AnalyzeResponseSchema, type AnalysisResult } from '../shared/analysis/schema.ts';
 import { createAnalyzeHandler, liveUnavailableReason, type HandlerDeps, type LogEntry } from './analyzeHandler.ts';
 import type { ServerConfig } from './config.ts';
-import type { ClipAnalyzer } from './types.ts';
+import type { ClipAnalyzer, ClipInput, ClipStore, StoredClipRead } from './types.ts';
 import { createUsageLimiter } from './usageLimiter.ts';
 
 const config: ServerConfig = {
@@ -15,6 +15,7 @@ const config: ServerConfig = {
   port: 0,
   redis: null,
   requireSharedLimiter: false,
+  blobToken: null,
 };
 
 const result: AnalysisResult = {
@@ -37,8 +38,13 @@ function setup(overrides: Partial<HandlerDeps> = {}) {
   return { handler, limiter, logs };
 }
 
-function upload(body: RequestInit['body'], type = 'video/mp4', headers: Record<string, string> = {}) {
-  return new Request('http://localhost/api/analyze', {
+function upload(
+  body: RequestInit['body'],
+  type = 'video/mp4',
+  headers: Record<string, string> = {},
+  query = '?start=0&end=3',
+) {
+  return new Request(`http://localhost/api/analyze${query}`, {
     method: 'POST',
     headers: { 'Content-Type': type, ...headers },
     body,
@@ -206,5 +212,166 @@ describe('analyze handler', () => {
     const body = await (await handler(upload(mp4Bytes), { clientId: 'a' })).text();
     expect(body).not.toContain('secret-ish');
     expect(logs[0]?.detail).toContain('provider 500');
+  });
+
+  it('requires a valid window for direct uploads', async () => {
+    const { handler } = setup();
+    expect((await handler(upload(mp4Bytes, 'video/mp4', {}, ''), { clientId: 'a' })).status).toBe(400);
+    expect((await handler(upload(mp4Bytes, 'video/mp4', {}, '?start=0&end=61'), { clientId: 'a' })).status).toBe(400);
+    expect((await handler(upload(mp4Bytes, 'video/mp4', {}, '?start=5&end=5.5'), { clientId: 'a' })).status).toBe(400);
+    expect((await handler(upload(mp4Bytes, 'video/mp4', {}, '?start=x&end=3'), { clientId: 'a' })).status).toBe(400);
+  });
+
+  it('passes the window to the analyzer', async () => {
+    const inputs: ClipInput[] = [];
+    const analyzer: ClipAnalyzer = async (input) => {
+      inputs.push(input);
+      return { ok: true, result };
+    };
+    const { handler } = setup({ analyzer });
+    await handler(upload(mp4Bytes, 'video/mp4', {}, '?start=2.5&end=62'), { clientId: 'a' });
+    expect(inputs[0]?.window).toEqual({ startSeconds: 2.5, endSeconds: 62 });
+  });
+});
+
+const PATHNAME = 'clips/0b6c7a4e-1f2d-4c3b-9a8e-123456789abc.mp4';
+
+function fakeStore(read: StoredClipRead = { ok: true, bytes: mp4Bytes, contentType: 'video/mp4' }) {
+  const deleted: string[] = [];
+  const reads: string[] = [];
+  const store: ClipStore = {
+    read: async (pathname) => {
+      reads.push(pathname);
+      return read;
+    },
+    delete: async (pathname) => {
+      deleted.push(pathname);
+    },
+  };
+  return { store, deleted, reads };
+}
+
+function storedRequest(body: unknown, headers: Record<string, string> = {}) {
+  return new Request('http://localhost/api/analyze', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+}
+
+const validStored = { pathname: PATHNAME, window: { startSeconds: 1, endSeconds: 8 } };
+
+describe('analyze handler with stored (large) clips', () => {
+  it('analyzes a stored clip, passes the window, and deletes the clip', async () => {
+    const { store, deleted, reads } = fakeStore();
+    const inputs: ClipInput[] = [];
+    const analyzer: ClipAnalyzer = async (input) => {
+      inputs.push(input);
+      return { ok: true, result };
+    };
+    const { handler, limiter } = setup({ clipStore: store, analyzer });
+    const response = await handler(storedRequest(validStored), { clientId: 'a' });
+    expect(response.status).toBe(200);
+    expect(reads).toEqual([PATHNAME]);
+    expect(inputs[0]).toMatchObject({ mimeType: 'video/mp4', window: { startSeconds: 1, endSeconds: 8 } });
+    expect(deleted).toEqual([PATHNAME]);
+    expect(limiter.activeCount()).toBe(0);
+  });
+
+  it('deletes the clip when the analysis fails, times out, or is rate limited', async () => {
+    const failing = fakeStore();
+    const bad: ClipAnalyzer = async () => ({ ok: false, code: 'invalid_model_output', detail: 'x' });
+    await setup({ clipStore: failing.store, analyzer: bad }).handler(storedRequest(validStored), { clientId: 'a' });
+    expect(failing.deleted).toEqual([PATHNAME]);
+
+    const slow = fakeStore();
+    const hang: ClipAnalyzer = ({ signal }) =>
+      new Promise((resolve) => signal.addEventListener('abort', () => resolve({ ok: false, code: 'timeout', detail: 'aborted' })));
+    const timedOut = await setup({ clipStore: slow.store, analyzer: hang, timeoutMs: 20 }).handler(storedRequest(validStored), {
+      clientId: 'a',
+    });
+    expect(timedOut.status).toBe(504);
+    expect(slow.deleted).toEqual([PATHNAME]);
+
+    const limited = fakeStore();
+    const limiter = { tryAcquire: async () => ({ ok: false as const, code: 'daily_limit_reached' as const, retryAfterSeconds: 60 }) };
+    const response = await setup({ clipStore: limited.store, limiter }).handler(storedRequest(validStored), { clientId: 'a' });
+    expect(response.status).toBe(429);
+    expect(limited.reads).toEqual([]);
+    expect(limited.deleted).toEqual([PATHNAME]);
+  });
+
+  it('rejects stored-clip requests when large uploads are not configured', async () => {
+    const { handler } = setup();
+    expect((await handler(storedRequest(validStored), { clientId: 'a' })).status).toBe(400);
+  });
+
+  it('rejects invalid pathnames and windows without touching storage', async () => {
+    const { store, deleted, reads } = fakeStore();
+    const { handler } = setup({ clipStore: store });
+    const bad = [
+      { ...validStored, pathname: 'clips/../secret.mp4' },
+      { ...validStored, pathname: 'https://evil.example/clip.mp4' },
+      { ...validStored, pathname: 'other/0b6c7a4e-1f2d-4c3b-9a8e-123456789abc.mp4' },
+      { ...validStored, window: { startSeconds: 0, endSeconds: 90 } },
+      { pathname: PATHNAME },
+      'not an object',
+    ];
+    for (const body of bad) {
+      expect((await handler(storedRequest(body), { clientId: 'a' })).status).toBe(400);
+    }
+    const garbled = new Request('http://localhost/api/analyze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{not json',
+    });
+    expect((await handler(garbled, { clientId: 'a' })).status).toBe(400);
+    expect(reads).toEqual([]);
+    expect(deleted).toEqual([]);
+  });
+
+  it('maps storage problems to clear errors and refunds the attempt', async () => {
+    const refunds: (boolean | undefined)[] = [];
+    const limiter = {
+      tryAcquire: async () => ({
+        ok: true as const,
+        release: async (options?: { refund?: boolean }) => {
+          refunds.push(options?.refund);
+        },
+      }),
+    };
+    const cases: [StoredClipRead, number][] = [
+      [{ ok: false, reason: 'not_found' }, 400],
+      [{ ok: false, reason: 'too_large' }, 413],
+      [{ ok: false, reason: 'unavailable' }, 503],
+      [{ ok: true, bytes: mp4Bytes, contentType: 'image/png' }, 415],
+      [{ ok: true, bytes: new Uint8Array([9, 9, 9, 9, 9, 9, 9, 9]), contentType: 'video/webm' }, 415],
+    ];
+    for (const [read, status] of cases) {
+      const { store, deleted } = fakeStore(read);
+      const response = await setup({ clipStore: store, limiter }).handler(storedRequest(validStored), { clientId: 'a' });
+      expect(response.status).toBe(status);
+      expect(deleted).toEqual([PATHNAME]);
+    }
+    expect(refunds).toEqual([true, true, true, true, true]);
+  });
+
+  it('still answers when deleting the clip fails', async () => {
+    const store: ClipStore = {
+      read: async () => ({ ok: true, bytes: mp4Bytes, contentType: 'video/mp4' }),
+      delete: async () => {
+        throw new Error('blob down');
+      },
+    };
+    const response = await setup({ clipStore: store }).handler(storedRequest(validStored), { clientId: 'a' });
+    expect(response.status).toBe(200);
+  });
+
+  it('checks the access code before reading or deleting anything', async () => {
+    const { store, deleted, reads } = fakeStore();
+    const { handler } = setup({ clipStore: store, config: { ...config, accessCode: 'kickflip' } });
+    expect((await handler(storedRequest(validStored), { clientId: 'a' })).status).toBe(401);
+    expect(reads).toEqual([]);
+    expect(deleted).toEqual([]);
   });
 });

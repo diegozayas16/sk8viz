@@ -24,7 +24,7 @@ describe('pickRecordingFormat', () => {
 
 describe('recording limits', () => {
   it('keeps a full-length recording under the upload limit', () => {
-    const fullLengthBytes = (RECORDING_BITS_PER_SECOND / 8) * ANALYSIS_LIMITS.maxClipSeconds;
+    const fullLengthBytes = (RECORDING_BITS_PER_SECOND / 8) * ANALYSIS_LIMITS.maxRecordingSeconds;
     expect(fullLengthBytes).toBeLessThan(RECORDING_STOP_BYTES);
     expect(RECORDING_STOP_BYTES).toBeLessThan(ANALYSIS_LIMITS.maxClipBytes);
   });

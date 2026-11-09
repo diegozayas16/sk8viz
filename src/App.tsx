@@ -1,5 +1,6 @@
 import { ArrowRight, Loader2, Upload, Video } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
+import { ANALYSIS_LIMITS } from '../shared/analysis/limits.ts';
 import { AccessCodeField } from './components/AccessCodeField.tsx';
 import { AnalysisError } from './components/AnalysisError.tsx';
 import { AnalysisResultCard } from './components/AnalysisResultCard.tsx';
@@ -23,12 +24,15 @@ const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visi
 export default function App() {
   const [source, setSource] = useState<ClipSource>('upload');
   const [accessCode, setAccessCode] = useState('');
-  const clipSelection = useClipSelection();
-  const analysis = useAnalysis();
   const health = useLiveAvailability();
+  const maxUploadBytes = health?.largeUploadsAvailable ? ANALYSIS_LIMITS.maxLargeClipBytes : ANALYSIS_LIMITS.maxClipBytes;
+  const clipSelection = useClipSelection(maxUploadBytes);
+  const analysis = useAnalysis();
 
   const clip = clipSelection.state.status === 'ready' ? clipSelection.state.clip : null;
   const analyzing = analysis.state.status === 'analyzing';
+  const uploadPercent = analysis.state.status === 'analyzing' ? analysis.state.uploadPercent : undefined;
+  const uploading = uploadPercent !== undefined && uploadPercent < 100;
   const liveUnavailable = health !== null && !health.liveAnalysisAvailable;
   const needsCode = health?.liveAnalysisAvailable === true && health.accessCodeRequired;
   const canAnalyze =
@@ -120,9 +124,20 @@ export default function App() {
               disabled={analyzing}
             />
             {source === 'upload' ? (
-              <ClipPicker state={clipSelection.state} onSelect={selectClip} disabled={analyzing} />
+              <ClipPicker
+                state={clipSelection.state}
+                onSelect={selectClip}
+                onWindowChange={clipSelection.setWindow}
+                maxBytes={maxUploadBytes}
+                disabled={analyzing}
+              />
             ) : (
-              <CameraRecorder clipState={clipSelection.state} onRecorded={selectClip} disabled={analyzing} />
+              <CameraRecorder
+                clipState={clipSelection.state}
+                onRecorded={selectClip}
+                onWindowChange={clipSelection.setWindow}
+                disabled={analyzing}
+              />
             )}
 
             {needsCode && <AccessCodeField value={accessCode} onChange={setAccessCode} disabled={analyzing} />}
@@ -133,7 +148,7 @@ export default function App() {
               onClick={() => void analysis.run('live', clip, accessCode)}
               className={`display mt-1 flex min-h-15 items-center justify-between bg-accent px-5 text-[22px] leading-none text-ground font-stretch-condensed transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-raised disabled:text-dim ${FOCUS}`}
             >
-              {analyzing ? 'Analyzing…' : 'Analyze clip'}
+              {uploading ? `Uploading ${uploadPercent}%` : analyzing ? 'Analyzing…' : 'Analyze clip'}
               {analyzing ? (
                 <Loader2 aria-hidden="true" className="size-6 animate-spin" />
               ) : (
@@ -141,8 +156,8 @@ export default function App() {
               )}
             </button>
             <p className="text-[13px] leading-relaxed text-dim">
-              When you click Analyze, your clip is sent to Google's Gemini API for AI processing. Sk8viz does not store
-              it.
+              When you click Analyze, your clip is sent to Google's Gemini API for AI processing. Large clips are held
+              in temporary storage only until the analysis finishes, then deleted.
             </p>
             <button
               type="button"
@@ -155,7 +170,11 @@ export default function App() {
           </section>
 
           <div ref={resultsRef} aria-live="polite" className="min-w-0 scroll-mt-6">
-            {analyzing && <p className="sr-only">Analyzing your clip. This can take up to a minute.</p>}
+            {analyzing && (
+              <p className="sr-only">
+                {uploading ? 'Uploading your clip.' : 'Analyzing your clip. This can take up to a minute.'}
+              </p>
+            )}
             {analysis.state.status === 'success' && (
               <AnalysisResultCard result={analysis.state.result} mode={analysis.state.mode} />
             )}

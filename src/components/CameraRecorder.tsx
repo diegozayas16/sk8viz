@@ -3,12 +3,13 @@ import { useEffect, useRef } from 'react';
 import { ANALYSIS_LIMITS } from '../../shared/analysis/limits.ts';
 import type { ClipSelectionState } from '../hooks/useClipSelection.ts';
 import { useCameraRecorder } from '../hooks/useCameraRecorder.ts';
-import { ClipStatus } from './ClipStatus.tsx';
+import { ClipStatus, type WindowChangeHandler } from './ClipStatus.tsx';
 import { CornerMarks } from './CornerMarks.tsx';
 
 interface CameraRecorderProps {
   clipState: ClipSelectionState;
   onRecorded: (file: File, durationSeconds: number) => void;
+  onWindowChange: WindowChangeHandler;
   disabled?: boolean;
 }
 
@@ -22,7 +23,7 @@ function formatClock(seconds: number) {
   return `0:${String(whole).padStart(2, '0')}`;
 }
 
-export function CameraRecorder({ clipState, onRecorded, disabled }: CameraRecorderProps) {
+export function CameraRecorder({ clipState, onRecorded, onWindowChange, disabled }: CameraRecorderProps) {
   const camera = useCameraRecorder(onRecorded);
   const videoRef = useRef<HTMLVideoElement>(null);
   const live = camera.state.status === 'ready' || camera.state.status === 'recording';
@@ -61,7 +62,7 @@ export function CameraRecorder({ clipState, onRecorded, disabled }: CameraRecord
               role="timer"
             >
               <span aria-hidden="true" className="size-2 animate-pulse rounded-full bg-rec" />
-              {formatClock(elapsed)} / {formatClock(ANALYSIS_LIMITS.maxClipSeconds)}
+              {formatClock(elapsed)} / {formatClock(ANALYSIS_LIMITS.maxRecordingSeconds)}
             </p>
           )}
         </div>
@@ -97,7 +98,7 @@ export function CameraRecorder({ clipState, onRecorded, disabled }: CameraRecord
           )}
         </div>
         <p className="text-sm text-muted">
-          Recording stops automatically at {ANALYSIS_LIMITS.maxClipSeconds} seconds. Point the camera so your whole body
+          Recording stops automatically at {ANALYSIS_LIMITS.maxRecordingSeconds} seconds. Point the camera so your whole body
           and board stay in frame.
         </p>
       </div>
@@ -112,7 +113,7 @@ export function CameraRecorder({ clipState, onRecorded, disabled }: CameraRecord
           {camera.state.message}
         </p>
       )}
-      <ClipStatus state={clipState} />
+      <ClipStatus state={clipState} onWindowChange={onWindowChange} disabled={disabled} />
       <button
         type="button"
         onClick={camera.start}

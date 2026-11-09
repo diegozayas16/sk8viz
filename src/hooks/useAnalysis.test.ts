@@ -9,13 +9,15 @@ import { useAnalysis } from './useAnalysis.ts';
 
 // Each analyzeClip call returns a promise the test resolves by hand, so the
 // order in which responses arrive can be controlled.
-const pending: { resolve: (outcome: AnalyzeOutcome) => void; signal: AbortSignal }[] = [];
+type Progress = (percent: number) => void;
+const pending: { resolve: (outcome: AnalyzeOutcome) => void; signal: AbortSignal; progress?: Progress }[] = [];
 const analyzeClip = vi.fn(
-  (_clip: SelectedClip, _code: string, signal: AbortSignal) =>
-    new Promise<AnalyzeOutcome>((resolve) => pending.push({ resolve, signal })),
+  (_clip: SelectedClip, _code: string, signal: AbortSignal, progress?: Progress) =>
+    new Promise<AnalyzeOutcome>((resolve) => pending.push({ resolve, signal, progress })),
 );
 vi.mock('../services/analysisClient.ts', () => ({
-  analyzeClip: (clip: SelectedClip, code: string, signal: AbortSignal) => analyzeClip(clip, code, signal),
+  analyzeClip: (clip: SelectedClip, code: string, signal: AbortSignal, progress?: Progress) =>
+    analyzeClip(clip, code, signal, progress),
 }));
 
 const clip = (name: string): SelectedClip => ({
@@ -23,6 +25,7 @@ const clip = (name: string): SelectedClip => ({
   type: 'video/mp4',
   previewUrl: `blob:${name}`,
   durationSeconds: 3,
+  window: { startSeconds: 0, endSeconds: 3 },
 });
 
 const result = (summary: string): AnalysisResult => ({ ...DEMO_RESULT, summary });
@@ -75,5 +78,25 @@ describe('useAnalysis', () => {
     act(() => void hook.current.run('live', clip('a.mp4')));
     await act(async () => pending[0]?.resolve({ ok: false, error: { code: 'busy', message: 'Busy' } }));
     expect(hook.current.state).toEqual({ status: 'error', error: { code: 'busy', message: 'Busy' } });
+  });
+
+  it('shows upload progress, but not from an older request', async () => {
+    const { result: hook } = renderHook(() => useAnalysis());
+    act(() => void hook.current.run('live', clip('old.mp4')));
+    act(() => pending[0]?.progress?.(40));
+    expect(hook.current.state).toEqual({ status: 'analyzing', mode: 'live', uploadPercent: 40 });
+
+    act(() => hook.current.reset());
+    act(() => void hook.current.run('live', clip('new.mp4')));
+    act(() => pending[0]?.progress?.(90));
+    expect(hook.current.state).toEqual({ status: 'analyzing', mode: 'live' });
+  });
+
+  it('ignores upload progress that arrives after the result', async () => {
+    const { result: hook } = renderHook(() => useAnalysis());
+    act(() => void hook.current.run('live', clip('a.mp4')));
+    await act(async () => pending[0]?.resolve({ ok: true, result: result('done') }));
+    act(() => pending[0]?.progress?.(100));
+    expect(hook.current.state).toMatchObject({ status: 'success', result: { summary: 'done' } });
   });
 });

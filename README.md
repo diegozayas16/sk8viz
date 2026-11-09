@@ -4,7 +4,10 @@ Film or upload a short skateboarding clip and get AI coaching feedback: what
 happened in the clip, which trick it looks like, whether it was landed, and a
 few specific tips. Live at <https://sk8viz.vercel.app>.
 
-The clip is sent to Google Gemini for analysis. It is not stored or logged.
+The clip is sent to Google Gemini for analysis. It is not kept or logged:
+clips over 4 MB pass through temporary private storage and are deleted as soon
+as the analysis finishes. Note that on Gemini's free tier, Google may use
+submitted content to improve its products; use a paid API key if that matters.
 When the footage does not clearly show skateboarding, the app says there is
 not enough evidence instead of guessing. A demo mode shows sample feedback,
 clearly labeled, without using your footage.
@@ -12,11 +15,17 @@ clearly labeled, without using your footage.
 ## How it works
 
 1. The browser records a clip (up to 30 seconds) or takes an uploaded file
-   (MP4, WebM or MOV, up to 4 MB).
-2. It posts the raw video to `/api/analyze`.
-3. The server checks the file type, size and usage limits, sends the clip to
-   Gemini with a JSON schema for the answer, and checks the answer against
-   that schema before returning it.
+   (MP4, WebM or MOV, up to 100 MB). The user trims it to the part with the
+   trick (at most 60 seconds); only that part is analyzed.
+2. Clips up to 4 MB are posted straight to `/api/analyze`. Bigger clips are
+   uploaded from the browser to private Vercel Blob storage with a short-lived
+   token from `/api/upload`, then `/api/analyze` is called with the clip's
+   storage name.
+3. The server checks the file type, size, trim window and usage limits, sends
+   the clip to Gemini (inline, or through Gemini's Files API for big clips)
+   with a JSON schema for the answer, and checks the answer against that
+   schema before returning it. Stored clips and Gemini files are deleted
+   whether the analysis worked or not.
 4. The browser checks the response again and shows the result.
 
 | Folder | What it holds |
@@ -63,13 +72,16 @@ All settings are server-side environment variables; none reach the browser.
 | `GEMINI_FALLBACK_MODEL` | No | Tried once when the main model is busy; `none` turns it off |
 | `ANALYSIS_ENABLED` | No | `false` switches live analysis off |
 | `ANALYSIS_ACCESS_CODE` | No | When set, visitors must enter this code to analyze |
+| `BLOB_READ_WRITE_TOKEN` | For clips over 4 MB | Vercel Blob token for temporary clip storage |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | On Vercel | Shared rate limits across function instances |
 
 ## Limits
 
 To protect the free Gemini quota, each visitor gets 10 analyses per day (UTC)
 and the whole site 35. One analysis runs at a time per visitor, and each one
-times out after 60 seconds. Attempts that never reached Gemini, or that Gemini
+times out after 2 minutes. Gemini's cost depends on how many seconds it
+watches, not on file size, which is why clips are trimmed to at most 60
+seconds. Attempts that never reached Gemini, or that Gemini
 turned away as busy or over its quota, do not count. The values live in
 `shared/analysis/limits.ts`.
 
@@ -87,7 +99,9 @@ turned away as busy or over its quota, do not count. The values live in
 The project deploys to Vercel from the `main` branch. Each deploy runs the
 tests and the type check first, and a failure stops the deploy. Vercel needs
 `GEMINI_API_KEY` and Upstash Redis credentials; without Redis, live analysis
-stays off on Vercel.
+stays off on Vercel. For clips over 4 MB, create a Blob store in the Vercel
+dashboard (Storage → Create → Blob) and connect it to the project; that sets
+`BLOB_READ_WRITE_TOKEN`.
 
 `vercel.json` also sets security headers, including a Content Security Policy
 that only allows the site's own scripts and Google Fonts.

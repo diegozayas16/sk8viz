@@ -1,16 +1,19 @@
-import { ApiError } from '@google/genai';
+import { ApiError, FileState } from '@google/genai';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { ANALYSIS_LIMITS } from '../../shared/analysis/limits.ts';
 import type { AnalysisResult } from '../../shared/analysis/schema.ts';
 import { createGeminiAnalyzer } from './gemini.ts';
 
 // Replaces the SDK client so tests control each generateContent call.
 const generateContent = vi.fn();
+const files = { upload: vi.fn(), get: vi.fn(), delete: vi.fn() };
 vi.mock('@google/genai', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@google/genai')>();
   return {
     ...actual,
     GoogleGenAI: class {
       models = { generateContent };
+      files = files;
     },
   };
 });
@@ -30,7 +33,14 @@ const modelsCalled = () => generateContent.mock.calls.map(([params]) => (params 
 
 beforeEach(() => {
   generateContent.mockReset();
+  files.upload.mockReset();
+  files.get.mockReset();
+  files.delete.mockReset().mockResolvedValue({});
 });
+
+type SentPart = { inlineData?: unknown; fileData?: { fileUri: string }; videoMetadata?: Record<string, unknown> };
+const videoPartSent = (call = 0) =>
+  (generateContent.mock.calls[call]?.[0] as { contents: { parts: SentPart[] }[] }).contents[0]?.parts[1];
 
 describe('createGeminiAnalyzer fallback', () => {
   it('uses the main model when it succeeds', async () => {
@@ -81,5 +91,56 @@ describe('createGeminiAnalyzer fallback', () => {
     generateContent.mockRejectedValueOnce(new ApiError({ message: 'overloaded', status: 503 }));
     expect(await createGeminiAnalyzer('key', 'main', null)(input())).toMatchObject({ code: 'busy' });
     expect(modelsCalled()).toEqual(['main', 'main']);
+  });
+});
+
+describe('createGeminiAnalyzer video input', () => {
+  const large = () => ({
+    bytes: new Uint8Array(ANALYSIS_LIMITS.maxClipBytes + 1),
+    mimeType: 'video/mp4',
+    signal: new AbortController().signal,
+    window: { startSeconds: 1.25, endSeconds: 9 },
+  });
+
+  it('sends small clips inline with the trim window as offsets', async () => {
+    generateContent.mockResolvedValueOnce(okResponse);
+    await createGeminiAnalyzer('key', 'main', null)({ ...input(), window: { startSeconds: 2, endSeconds: 7.5 } });
+    expect(files.upload).not.toHaveBeenCalled();
+    const part = videoPartSent();
+    expect(part?.inlineData).toBeDefined();
+    expect(part?.videoMetadata).toEqual({ fps: ANALYSIS_LIMITS.videoSampleFps, startOffset: '2s', endOffset: '7.5s' });
+  });
+
+  it('uploads large clips with the Files API, waits for processing, and deletes the file', async () => {
+    files.upload.mockResolvedValueOnce({ name: 'files/abc', state: FileState.PROCESSING });
+    files.get.mockResolvedValueOnce({ name: 'files/abc', state: FileState.ACTIVE, uri: 'https://files/abc' });
+    generateContent.mockResolvedValueOnce(okResponse);
+    const outcome = await createGeminiAnalyzer('key', 'main', null)(large());
+    expect(outcome).toMatchObject({ ok: true });
+    const part = videoPartSent();
+    expect(part?.fileData?.fileUri).toBe('https://files/abc');
+    expect(part?.inlineData).toBeUndefined();
+    expect(part?.videoMetadata).toMatchObject({ startOffset: '1.25s', endOffset: '9s' });
+    expect(files.delete).toHaveBeenCalledWith({ name: 'files/abc' });
+  });
+
+  it('deletes the uploaded file when the analysis fails', async () => {
+    files.upload.mockResolvedValueOnce({ name: 'files/abc', state: FileState.ACTIVE, uri: 'https://files/abc' });
+    generateContent.mockRejectedValueOnce(new ApiError({ message: 'bad request', status: 400 }));
+    expect(await createGeminiAnalyzer('key', 'main', null)(large())).toMatchObject({ code: 'provider_error' });
+    expect(files.delete).toHaveBeenCalledWith({ name: 'files/abc' });
+  });
+
+  it('reports a provider error and cleans up when file processing fails', async () => {
+    files.upload.mockResolvedValueOnce({ name: 'files/abc', state: FileState.FAILED });
+    expect(await createGeminiAnalyzer('key', 'main', null)(large())).toMatchObject({ ok: false, code: 'provider_error' });
+    expect(generateContent).not.toHaveBeenCalled();
+    expect(files.delete).toHaveBeenCalledWith({ name: 'files/abc' });
+  });
+
+  it('maps a busy upload to busy so the attempt is refunded', async () => {
+    files.upload.mockRejectedValueOnce(new ApiError({ message: 'overloaded', status: 503 }));
+    expect(await createGeminiAnalyzer('key', 'main', null)(large())).toMatchObject({ ok: false, code: 'busy' });
+    expect(generateContent).not.toHaveBeenCalled();
   });
 });

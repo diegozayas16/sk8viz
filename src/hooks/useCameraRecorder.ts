@@ -140,7 +140,7 @@ export function useCameraRecorder(onRecorded: OnRecorded) {
       setState({ status: 'off' });
       if (chunks.length === 0) return;
 
-      const durationSeconds = Math.min((performance.now() - startedAt) / 1000, ANALYSIS_LIMITS.maxClipSeconds);
+      const durationSeconds = Math.min((performance.now() - startedAt) / 1000, ANALYSIS_LIMITS.maxRecordingSeconds);
       const file = new File(chunks, `sk8viz-recording-${Date.now()}.${format.extension}`, { type: format.fileType });
       onRecordedRef.current(file, durationSeconds);
     };
@@ -155,7 +155,7 @@ export function useCameraRecorder(onRecorded: OnRecorded) {
       timersRef.current.push(window.setTimeout(tick, 250));
     };
     timersRef.current.push(window.setTimeout(tick, 250));
-    timersRef.current.push(window.setTimeout(stop, ANALYSIS_LIMITS.maxClipSeconds * 1000));
+    timersRef.current.push(window.setTimeout(stop, ANALYSIS_LIMITS.maxRecordingSeconds * 1000));
   }, [clearTimers, close, releaseCamera, stop]);
 
   const flip = useCallback(() => {

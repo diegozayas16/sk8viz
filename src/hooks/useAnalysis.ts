@@ -43,7 +43,13 @@ export function useAnalysis() {
     inFlightRef.current = true;
     setState({ status: 'analyzing', mode });
 
-    const outcome = await analyzeClip(clip, accessCode, controller.signal);
+    const onUploadProgress = (uploadPercent: number) => {
+      // Only while this request is still the one in flight.
+      if (id === requestIdRef.current && controllerRef.current === controller) {
+        setState({ status: 'analyzing', mode, uploadPercent });
+      }
+    };
+    const outcome = await analyzeClip(clip, accessCode, controller.signal, onUploadProgress);
     if (id !== requestIdRef.current) return;
 
     inFlightRef.current = false;

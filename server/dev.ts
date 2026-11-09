@@ -10,7 +10,7 @@ import { loadConfig } from './config.ts';
 // credentials are set in .env.
 
 const config = loadConfig();
-const { analyze, health } = createApp(config);
+const { analyze, upload, health } = createApp(config);
 
 function toRequest(req: IncomingMessage, signal: AbortSignal): Request {
   const headers = new Headers();
@@ -62,6 +62,10 @@ const server = createServer(async (req, res) => {
     const request = toRequest(req, disconnect.signal);
     response = await analyze(request, { clientId, signal: disconnect.signal });
     await discardUnreadBody(request);
+  } else if (path === '/api/upload') {
+    const request = toRequest(req, disconnect.signal);
+    response = await upload(request);
+    await discardUnreadBody(request);
   } else if (path === '/api/health' && req.method === 'GET') {
     response = health();
   } else {
@@ -78,6 +82,7 @@ const server = createServer(async (req, res) => {
 server.listen(config.port, () => {
   const unavailable = liveUnavailableReason(config);
   const limiter = config.redis ? 'shared Redis' : 'in-memory';
-  console.log(`Sk8viz API listening on http://localhost:${config.port} (model ${config.model}, ${limiter} limits)`);
+  const uploads = config.blobToken ? 'large uploads on' : 'large uploads off (no BLOB_READ_WRITE_TOKEN)';
+  console.log(`Sk8viz API listening on http://localhost:${config.port} (model ${config.model}, ${limiter} limits, ${uploads})`);
   if (unavailable) console.log(`Live analysis unavailable: ${unavailable}`);
 });

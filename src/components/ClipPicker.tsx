@@ -2,24 +2,27 @@ import { Upload } from 'lucide-react';
 import { useId } from 'react';
 import { ANALYSIS_LIMITS } from '../../shared/analysis/limits.ts';
 import type { ClipSelectionState } from '../hooks/useClipSelection.ts';
-import { ClipStatus } from './ClipStatus.tsx';
+import { ClipStatus, type WindowChangeHandler } from './ClipStatus.tsx';
 import { CornerMarks } from './CornerMarks.tsx';
 
 interface ClipPickerProps {
   state: ClipSelectionState;
   onSelect: (file: File | null) => void;
+  onWindowChange: WindowChangeHandler;
+  // Largest file the server accepts right now (bigger when large uploads are on).
+  maxBytes: number;
   disabled?: boolean;
 }
 
-export function ClipPicker({ state, onSelect, disabled }: ClipPickerProps) {
+export function ClipPicker({ state, onSelect, onWindowChange, maxBytes, disabled }: ClipPickerProps) {
   const inputId = useId();
   const hintId = useId();
-  const maxMb = ANALYSIS_LIMITS.maxClipBytes / 1024 / 1024;
+  const maxMb = maxBytes / 1024 / 1024;
   const hasClip = state.status === 'ready';
 
   return (
     <div className="flex flex-col gap-3">
-      <ClipStatus state={state} />
+      <ClipStatus state={state} onWindowChange={onWindowChange} disabled={disabled} />
       <label
         htmlFor={inputId}
         className={`group relative flex cursor-pointer flex-col items-center justify-center gap-3 border border-edge bg-surface p-6 text-center transition-colors hover:border-ink has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-accent has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-60 ${
@@ -32,7 +35,7 @@ export function ClipPicker({ state, onSelect, disabled }: ClipPickerProps) {
           {hasClip ? 'Choose a different clip' : 'Choose a skate clip'}
         </span>
         <span id={hintId} className="font-mono text-xs tracking-[0.06em] text-muted">
-          MP4 · WEBM · MOV — UP TO {ANALYSIS_LIMITS.maxClipSeconds} S, {maxMb} MB
+          MP4 · WEBM · MOV — UP TO {maxMb} MB · {ANALYSIS_LIMITS.maxWindowSeconds} S ANALYZED
         </span>
         <input
           id={inputId}
@@ -45,7 +48,7 @@ export function ClipPicker({ state, onSelect, disabled }: ClipPickerProps) {
         />
       </label>
       {!hasClip && (
-        <p className="text-sm text-muted">Short clips at 720p fit best. Keep your whole body and board in frame.</p>
+        <p className="text-sm text-muted">Keep your whole body and board in frame. You can trim to the trick after choosing a clip.</p>
       )}
     </div>
   );

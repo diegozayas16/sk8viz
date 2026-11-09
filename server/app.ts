@@ -3,7 +3,9 @@ import { ANALYSIS_LIMITS } from '../shared/analysis/limits.ts';
 import { createAnalyzeHandler, createHealthHandler, liveUnavailableReason } from './analyzeHandler.ts';
 import type { ServerConfig } from './config.ts';
 import { createRedisUsageLimiter } from './redisUsageLimiter.ts';
+import { createBlobClipStore } from './services/blobStore.ts';
 import { createGeminiAnalyzer } from './services/gemini.ts';
+import { createUploadHandler } from './uploadHandler.ts';
 import { createUsageLimiter, type UsageLimiter } from './usageLimiter.ts';
 
 // Wires the handlers for a runtime: the local dev server or a Vercel function.
@@ -17,7 +19,13 @@ export function createApp(config: ServerConfig) {
   const analyzer =
     liveUnavailableReason(config) === null && config.apiKey ? createGeminiAnalyzer(config.apiKey, config.model, config.fallbackModel) : null;
   return {
-    analyze: createAnalyzeHandler({ config, analyzer, limiter: createLimiter(config) }),
+    analyze: createAnalyzeHandler({
+      config,
+      analyzer,
+      limiter: createLimiter(config),
+      clipStore: config.blobToken ? createBlobClipStore(config.blobToken) : null,
+    }),
+    upload: createUploadHandler({ config }),
     health: createHealthHandler(config),
   };
 }

@@ -23,6 +23,7 @@
   "dependencies": {
     "@google/genai": "^2.31.0",
     "@upstash/redis": "^1.39.0",
+    "@vercel/blob": "^2.9.0",
     "lucide-react": "^1.61.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",

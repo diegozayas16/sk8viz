@@ -13,6 +13,8 @@ export interface ServerConfig {
   redis: { url: string; token: string } | null;
   // Deployed functions run on many instances and must share limiter state.
   requireSharedLimiter: boolean;
+  // Vercel Blob read-write token. Enables clips over the direct 4 MB limit.
+  blobToken: string | null;
 }
 
 // Model IDs come from https://ai.google.dev/gemini-api/docs/models (checked 2026-10-24).
@@ -37,5 +39,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
     port: Number.isInteger(port) && port > 0 ? port : 8787,
     redis: redisUrl && redisToken ? { url: redisUrl, token: redisToken } : null,
     requireSharedLimiter: env.VERCEL === '1',
+    blobToken: env.BLOB_READ_WRITE_TOKEN?.trim() || null,
   };
 }

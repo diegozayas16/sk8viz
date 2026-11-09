@@ -1,9 +1,16 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { ACCEPTED_VIDEO_TYPES, ANALYSIS_LIMITS, isAcceptedVideoType } from '../shared/analysis/limits.ts';
-import type { AnalysisErrorCode, AnalyzeResponse, HealthResponse } from '../shared/analysis/schema.ts';
+import {
+  ClipWindowSchema,
+  StoredClipRequestSchema,
+  type AnalysisErrorCode,
+  type AnalyzeResponse,
+  type ClipWindow,
+  type HealthResponse,
+} from '../shared/analysis/schema.ts';
 import type { ServerConfig } from './config.ts';
 import { matchesVideoSignature, readLimitedBody } from './readBody.ts';
-import type { ClipAnalyzer } from './types.ts';
+import type { ClipAnalyzer, ClipStore } from './types.ts';
 import type { UsageLimiter } from './usageLimiter.ts';
 
 // Platform-neutral handlers built on the standard Request/Response API, so
@@ -29,6 +36,8 @@ export interface HandlerDeps {
   config: ServerConfig;
   analyzer: ClipAnalyzer | null;
   limiter: UsageLimiter;
+  // null when large uploads are not configured (no Blob token).
+  clipStore?: ClipStore | null;
   log?: (entry: LogEntry) => void;
   timeoutMs?: number;
 }
@@ -53,7 +62,7 @@ const STATUS: Record<AnalysisErrorCode, number> = {
 const MESSAGES: Record<AnalysisErrorCode, string> = {
   invalid_request: 'The request was not a valid clip upload.',
   unsupported_media: 'Use an MP4, WebM, or MOV video file.',
-  payload_too_large: `Clips must be ${ANALYSIS_LIMITS.maxClipBytes / 1024 / 1024} MB or smaller.`,
+  payload_too_large: 'That clip is too large to analyze.',
   rate_limited: 'Too many analyses in a short time. Wait a moment and try again.',
   busy: 'The analyzer is busy right now. Try again shortly.',
   quota_exceeded: "Today's analysis limit has been reached. Try again tomorrow.",
@@ -83,12 +92,20 @@ export function liveUnavailableReason(config: ServerConfig): string | null {
 export function createHealthHandler(config: ServerConfig) {
   return (): Response => {
     const reason = liveUnavailableReason(config);
-    return json({ liveAnalysisAvailable: reason === null, reason, accessCodeRequired: config.accessCode !== null }, 200);
+    return json(
+      {
+        liveAnalysisAvailable: reason === null,
+        reason,
+        accessCodeRequired: config.accessCode !== null,
+        largeUploadsAvailable: reason === null && config.blobToken !== null,
+      },
+      200,
+    );
   };
 }
 
 // Compares fixed-length digests so the check takes the same time for any guess.
-function accessCodeMatches(given: string | null, expected: string): boolean {
+export function accessCodeMatches(given: string | null, expected: string): boolean {
   if (!given) return false;
   const digest = (value: string) => createHash('sha256').update(value).digest();
   return timingSafeEqual(digest(given.trim()), digest(expected));
@@ -98,9 +115,91 @@ function accessCodeMatches(given: string | null, expected: string): boolean {
 // count against the visitor's or the site's daily allowance.
 const NOT_PROCESSED = new Set<AnalysisErrorCode>(['busy', 'quota_exceeded', 'server_misconfigured']);
 
+// Small JSON bodies only: a stored-clip request is a pathname and two numbers.
+const MAX_JSON_BYTES = 2048;
+
+// Where the clip comes from: the request body (up to 4 MB) or Blob storage.
+type ClipSource =
+  | { kind: 'direct'; contentType: keyof typeof ACCEPTED_VIDEO_TYPES; body: ReadableStream<Uint8Array> | null }
+  | { kind: 'stored'; pathname: string };
+
+type ParsedRequest =
+  | { ok: true; source: ClipSource; window: ClipWindow }
+  | { ok: false; code: AnalysisErrorCode; detail: string };
+
+// Direct uploads carry the window in the query string (?start=&end=).
+function windowFromQuery(url: string): ClipWindow | null {
+  const params = new URL(url).searchParams;
+  const start = params.get('start');
+  const end = params.get('end');
+  if (start === null || end === null) return null;
+  const parsed = ClipWindowSchema.safeParse({ startSeconds: Number(start), endSeconds: Number(end) });
+  return parsed.success ? parsed.data : null;
+}
+
+async function parseRequest(request: Request, clipStore: ClipStore | null): Promise<ParsedRequest> {
+  const contentType = (request.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+
+  if (contentType === 'application/json') {
+    if (!clipStore) return { ok: false, code: 'invalid_request', detail: 'large uploads not configured' };
+    const body = await readLimitedBody(request.body, MAX_JSON_BYTES);
+    if (!body.ok) return { ok: false, code: 'invalid_request', detail: `json ${body.reason}` };
+    let data: unknown;
+    try {
+      data = JSON.parse(new TextDecoder().decode(body.bytes));
+    } catch {
+      return { ok: false, code: 'invalid_request', detail: 'json unparseable' };
+    }
+    const parsed = StoredClipRequestSchema.safeParse(data);
+    if (!parsed.success) return { ok: false, code: 'invalid_request', detail: 'json schema mismatch' };
+    return { ok: true, source: { kind: 'stored', pathname: parsed.data.pathname }, window: parsed.data.window };
+  }
+
+  if (!isAcceptedVideoType(contentType)) {
+    return { ok: false, code: 'unsupported_media', detail: `type ${contentType || 'none'}` };
+  }
+  const declaredLength = Number(request.headers.get('content-length'));
+  if (Number.isFinite(declaredLength) && declaredLength > ANALYSIS_LIMITS.maxClipBytes) {
+    return { ok: false, code: 'payload_too_large', detail: 'content-length' };
+  }
+  const window = windowFromQuery(request.url);
+  if (!window) return { ok: false, code: 'invalid_request', detail: 'missing or invalid window' };
+  return { ok: true, source: { kind: 'direct', contentType, body: request.body }, window };
+}
+
+type LoadedClip =
+  | { ok: true; bytes: Uint8Array; contentType: keyof typeof ACCEPTED_VIDEO_TYPES }
+  | { ok: false; code: AnalysisErrorCode; detail: string; retryAfterSeconds?: number };
+
+async function loadClip(source: ClipSource, clipStore: ClipStore | null, signal: AbortSignal): Promise<LoadedClip> {
+  if (source.kind === 'direct') {
+    const body = await readLimitedBody(source.body, ANALYSIS_LIMITS.maxClipBytes);
+    if (!body.ok) {
+      return { ok: false, code: body.reason === 'too_large' ? 'payload_too_large' : 'invalid_request', detail: body.reason };
+    }
+    return { ok: true, bytes: body.bytes, contentType: source.contentType };
+  }
+
+  if (!clipStore) return { ok: false, code: 'invalid_request', detail: 'large uploads not configured' };
+  const stored = await clipStore.read(source.pathname, ANALYSIS_LIMITS.maxLargeClipBytes, signal);
+  if (!stored.ok) {
+    if (stored.reason === 'too_large') return { ok: false, code: 'payload_too_large', detail: 'stored clip' };
+    if (stored.reason === 'unavailable') {
+      return { ok: false, code: 'busy', detail: 'clip storage unavailable', retryAfterSeconds: 30 };
+    }
+    return { ok: false, code: 'invalid_request', detail: `stored clip ${stored.reason}` };
+  }
+  // Blob storage only accepted these types (see the upload handler), but the
+  // stored value is checked again rather than trusted.
+  const contentType = stored.contentType.split(';')[0]?.trim().toLowerCase() ?? '';
+  if (!isAcceptedVideoType(contentType)) return { ok: false, code: 'unsupported_media', detail: `stored type ${contentType}` };
+  return { ok: true, bytes: stored.bytes, contentType };
+}
+
 export function createAnalyzeHandler(deps: HandlerDeps) {
   const log = deps.log ?? ((entry: LogEntry) => console.log(JSON.stringify({ event: 'analyze', ...entry })));
   const timeoutMs = deps.timeoutMs ?? ANALYSIS_LIMITS.analysisTimeoutMs;
+  const clipStore = deps.clipStore ?? null;
 
   return async (request: Request, ctx: RequestContext): Promise<Response> => {
     const requestId = crypto.randomUUID();
@@ -124,66 +223,77 @@ export function createAnalyzeHandler(deps: HandlerDeps) {
       return fail('access_denied');
     }
 
-    const contentType = (request.headers.get('content-type') ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
-    if (!isAcceptedVideoType(contentType)) return fail('unsupported_media', { detail: `type ${contentType || 'none'}` });
+    const parsed = await parseRequest(request, clipStore);
+    if (!parsed.ok) return fail(parsed.code, { detail: parsed.detail });
+    const { source, window } = parsed;
+    const analyzer = deps.analyzer;
 
-    const declaredLength = Number(request.headers.get('content-length'));
-    if (Number.isFinite(declaredLength) && declaredLength > ANALYSIS_LIMITS.maxClipBytes) {
-      return fail('payload_too_large', { detail: 'content-length' });
-    }
+    const run = async (): Promise<Response> => {
+      let slot;
+      try {
+        slot = await deps.limiter.tryAcquire(ctx.clientId);
+      } catch {
+        // Fail closed: without the shared limiter we cannot enforce usage limits.
+        return fail('busy', { detail: 'limiter unavailable', retryAfterSeconds: 30 });
+      }
+      if (!slot.ok) return fail(slot.code, { retryAfterSeconds: slot.retryAfterSeconds });
 
-    let slot;
-    try {
-      slot = await deps.limiter.tryAcquire(ctx.clientId);
-    } catch {
-      // Fail closed: without the shared limiter we cannot enforce usage limits.
-      return fail('busy', { detail: 'limiter unavailable', retryAfterSeconds: 30 });
-    }
-    if (!slot.ok) return fail(slot.code, { retryAfterSeconds: slot.retryAfterSeconds });
+      // Rejections before the provider call are free; see NOT_PROCESSED for after.
+      let refund = true;
+      try {
+        const signals = [AbortSignal.timeout(timeoutMs)];
+        if (ctx.signal) signals.push(ctx.signal);
+        const signal = AbortSignal.any(signals);
 
-    // Rejections before the provider call are free; see NOT_PROCESSED for after.
-    let refund = true;
-    try {
-      const body = await readLimitedBody(request.body, ANALYSIS_LIMITS.maxClipBytes);
-      if (!body.ok) return fail(body.reason === 'too_large' ? 'payload_too_large' : 'invalid_request', { detail: body.reason });
-      bytes = body.bytes.byteLength;
+        const clip = await loadClip(source, clipStore, signal);
+        if (!clip.ok) return fail(clip.code, { detail: clip.detail, retryAfterSeconds: clip.retryAfterSeconds });
+        bytes = clip.bytes.byteLength;
 
-      if (!matchesVideoSignature(contentType, body.bytes)) return fail('unsupported_media', { detail: 'signature mismatch' });
+        if (!matchesVideoSignature(clip.contentType, clip.bytes)) {
+          return fail('unsupported_media', { detail: 'signature mismatch' });
+        }
 
-      const signals = [AbortSignal.timeout(timeoutMs)];
-      if (ctx.signal) signals.push(ctx.signal);
+        refund = false;
+        const outcome = await analyzer({
+          bytes: clip.bytes,
+          mimeType: ACCEPTED_VIDEO_TYPES[clip.contentType],
+          signal,
+          window,
+        });
 
-      refund = false;
-      const outcome = await deps.analyzer({
-        bytes: body.bytes,
-        mimeType: ACCEPTED_VIDEO_TYPES[contentType],
-        signal: AbortSignal.any(signals),
-      });
+        if (!outcome.ok) {
+          refund = NOT_PROCESSED.has(outcome.code);
+          return fail(outcome.code, {
+            detail: outcome.detail,
+            tokens: outcome.tokens,
+            model: outcome.model,
+            retryAfterSeconds: outcome.retryAfterSeconds,
+          });
+        }
 
-      if (!outcome.ok) {
-        refund = NOT_PROCESSED.has(outcome.code);
-        return fail(outcome.code, {
-          detail: outcome.detail,
+        log({
+          requestId,
+          outcome: 'success',
+          durationMs: Date.now() - started,
+          bytes,
           tokens: outcome.tokens,
           model: outcome.model,
-          retryAfterSeconds: outcome.retryAfterSeconds,
         });
+        return json({ ok: true, requestId, result: outcome.result }, 200);
+      } catch {
+        return fail('provider_error', { detail: 'unexpected error' });
+      } finally {
+        // A failed release is not fatal: the slot's lease expires on its own.
+        await slot.release({ refund }).catch(() => {});
       }
+    };
 
-      log({
-        requestId,
-        outcome: 'success',
-        durationMs: Date.now() - started,
-        bytes,
-        tokens: outcome.tokens,
-        model: outcome.model,
-      });
-      return json({ ok: true, requestId, result: outcome.result }, 200);
-    } catch {
-      return fail('provider_error', { detail: 'unexpected error' });
+    try {
+      return await run();
     } finally {
-      // A failed release is not fatal: the slot's lease expires on its own.
-      await slot.release({ refund }).catch(() => {});
+      // Stored clips are deleted on every path (success, failure, rate limit).
+      // If this delete fails, the blob still expires on its own (storedClipTtlDays).
+      if (source.kind === 'stored' && clipStore) await clipStore.delete(source.pathname).catch(() => {});
     }
   };
 }
