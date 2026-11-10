@@ -3,7 +3,6 @@ import { useId, useState, type FormEvent } from 'react';
 import type { AuthActionResult } from '../hooks/useAuth.ts';
 
 interface AuthPanelProps {
-  onGoogle: () => Promise<AuthActionResult>;
   onEmail: (mode: 'sign_in' | 'sign_up', email: string, password: string) => Promise<AuthActionResult>;
   disabled?: boolean;
 }
@@ -13,7 +12,7 @@ const INPUT =
   'min-h-12 w-full border border-edge bg-surface px-3 text-ink placeholder:text-dim focus-visible:border-accent focus-visible:outline-none disabled:opacity-50';
 
 // Shown to signed-out visitors when live analysis needs an account.
-export function AuthPanel({ onGoogle, onEmail, disabled }: AuthPanelProps) {
+export function AuthPanel({ onEmail, disabled }: AuthPanelProps) {
   const [mode, setMode] = useState<'sign_in' | 'sign_up'>('sign_in');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -23,36 +22,26 @@ export function AuthPanel({ onGoogle, onEmail, disabled }: AuthPanelProps) {
   const passwordId = useId();
   const locked = disabled || busy;
 
-  const handle = async (action: () => Promise<AuthActionResult>) => {
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
     setBusy(true);
     setMessage(null);
-    const result = await action();
+    let result: AuthActionResult;
+    try {
+      result = await onEmail(mode, email, password);
+    } catch {
+      result = { ok: false, message: "Couldn't reach the sign-in service. Check your connection and try again." };
+    }
     setBusy(false);
     if (!result.ok) setMessage({ kind: 'error', text: result.message });
     else if (result.note) setMessage({ kind: 'note', text: result.note });
-  };
-
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    void handle(() => onEmail(mode, email, password));
   };
 
   return (
     <div className="flex flex-col gap-4 border border-edge p-5">
       <p className="eyebrow">Sign in to analyze your clip</p>
 
-      <button
-        type="button"
-        onClick={() => void handle(onGoogle)}
-        disabled={locked}
-        className={`min-h-12 border border-edge px-4 font-semibold hover:border-ink disabled:opacity-50 ${FOCUS}`}
-      >
-        Continue with Google
-      </button>
-
-      <p className="text-center font-mono text-xs uppercase tracking-[0.08em] text-dim">or use your email</p>
-
-      <form onSubmit={submit} className="flex flex-col gap-3">
+      <form onSubmit={(event) => void submit(event)} className="flex flex-col gap-3">
         <label htmlFor={emailId} className="sr-only">
           Email
         </label>

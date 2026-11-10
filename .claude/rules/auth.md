@@ -11,8 +11,10 @@ paths:
 
 # Accounts (Supabase Auth)
 
-- Sign-in: Google OAuth, or email + password with "Confirm email" **off** (no
-  email service yet, so emails are unverified and there is no password reset).
+- Sign-in: email + password only, with "Confirm email" **off** (no email
+  service yet, so emails are unverified and there is no password reset).
+  Google sign-in was removed until Google Cloud is set up; adding it back
+  needs `signInWithOAuth` plus redirect URLs.
 - Browser sends the Supabase access token as `Authorization: Bearer` to
   `/api/upload` and `/api/analyze`. The server verifies it with
   `auth.getClaims(token)` in `server/auth.ts` (JWKS, cached) and uses `sub`
@@ -21,5 +23,5 @@ paths:
 - Same two vars on both sides: `VITE_SUPABASE_URL`,
   `VITE_SUPABASE_PUBLISHABLE_KEY` (public by design). The secret/service-role
   key is not used. On Vercel, live analysis is off unless both are set.
-- Supabase Auth → URL Configuration must list localhost:5173, the production
-  URL, and the preview pattern, or OAuth redirects fail.
+- Supabase Auth → URL Configuration lists localhost:5173, the production URL,
+  and the preview pattern (needed for email links and any future OAuth).

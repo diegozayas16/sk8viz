@@ -10,8 +10,7 @@ const key = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY as string | undefined;
 export const supabase: SupabaseClient | null =
   url && key
     ? createClient(url, key, {
-        // PKCE: Google sends back a one-time code (in ?code=) that only this
-        // browser can exchange for a session, instead of a token in the URL.
-        auth: { flowType: 'pkce', persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
+        // Keep the session in this browser and renew the token before it expires.
+        auth: { persistSession: true, autoRefreshToken: true },
       })
     : null;

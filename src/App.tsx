@@ -162,7 +162,7 @@ export default function App() {
 
             {needsSignIn &&
               (auth.state.status === 'signed_out' ? (
-                <AuthPanel onGoogle={auth.signInWithGoogle} onEmail={auth.signInWithEmail} disabled={analyzing} />
+                <AuthPanel onEmail={auth.signInWithEmail} disabled={analyzing} />
               ) : auth.state.status === 'unavailable' ? (
                 <p className="border border-edge p-4 text-sm text-body">
                   Live analysis needs an account, but sign-in isn't set up in this version of the site.

@@ -27,16 +27,6 @@ export function useAuth() {
     return () => data.subscription.unsubscribe();
   }, []);
 
-  const signInWithGoogle = useCallback(async (): Promise<AuthActionResult> => {
-    if (!supabase) return { ok: false, message: 'Sign-in is not set up.' };
-    // Leaves the page for Google, then comes back here signed in.
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin },
-    });
-    return error ? { ok: false, message: error.message } : { ok: true };
-  }, []);
-
   const signInWithEmail = useCallback(
     async (mode: 'sign_in' | 'sign_up', email: string, password: string): Promise<AuthActionResult> => {
       if (!supabase) return { ok: false, message: 'Sign-in is not set up.' };
@@ -64,5 +54,5 @@ export function useAuth() {
     return data.session?.access_token ?? null;
   }, []);
 
-  return { state, signInWithGoogle, signInWithEmail, signOut, getAccessToken };
+  return { state, signInWithEmail, signOut, getAccessToken };
 }
