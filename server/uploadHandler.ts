@@ -2,7 +2,8 @@ import { issueSignedToken } from '@vercel/blob';
 import { handleUploadPresigned } from '@vercel/blob/client';
 import { z } from 'zod';
 import { ACCEPTED_VIDEO_TYPES, ANALYSIS_LIMITS, STORED_CLIP_PATHNAME } from '../shared/analysis/limits.ts';
-import { accessCodeMatches, liveUnavailableReason } from './analyzeHandler.ts';
+import { checkSignIn, liveUnavailableReason } from './analyzeHandler.ts';
+import type { AuthVerifier } from './auth.ts';
 import { largeUploadsConfigured, type ServerConfig } from './config.ts';
 import { readLimitedBody } from './readBody.ts';
 
@@ -37,6 +38,8 @@ const UNUSED_WEBHOOK_KEY = 'unused-upload-completed-callbacks-are-rejected';
 
 export interface UploadHandlerDeps {
   config: ServerConfig;
+  // Required when config.supabase is set.
+  auth?: AuthVerifier | null;
   // Injected in tests; default to the Vercel Blob helpers.
   presign?: typeof handleUploadPresigned;
   signToken?: typeof issueSignedToken;
@@ -51,6 +54,7 @@ function reply(body: unknown, status: number): Response {
 
 export function createUploadHandler({
   config,
+  auth = null,
   presign = handleUploadPresigned,
   signToken = issueSignedToken,
 }: UploadHandlerDeps) {
@@ -59,8 +63,11 @@ export function createUploadHandler({
     if (liveUnavailableReason(config) !== null || !largeUploadsConfigured(config)) {
       return reply({ error: 'Large uploads are not available right now.' }, 503);
     }
-    if (config.accessCode && !accessCodeMatches(request.headers.get('x-access-code'), config.accessCode)) {
-      return reply({ error: 'Live analysis needs a valid access code.' }, 401);
+    const signIn = await checkSignIn(config, auth, request);
+    if (!signIn.ok) {
+      return signIn.code === 'sign_in_required'
+        ? reply({ error: 'Sign in to upload a clip.' }, 401)
+        : reply({ error: 'Large uploads are not available right now.' }, 503);
     }
 
     const raw = await readLimitedBody(request.body, MAX_REQUEST_BYTES);
@@ -75,7 +82,7 @@ export function createUploadHandler({
     if (!parsed.success) return reply({ error: 'Invalid upload request.' }, 400);
 
     // A read-write token when configured; otherwise the SDK uses OIDC + BLOB_STORE_ID.
-    const auth = config.blobToken ? { token: config.blobToken } : {};
+    const blobAuth = config.blobToken ? { token: config.blobToken } : {};
     const constraints = {
       allowedContentTypes: Object.keys(ACCEPTED_VIDEO_TYPES),
       maximumSizeInBytes: ANALYSIS_LIMITS.maxLargeClipBytes,
@@ -89,7 +96,7 @@ export function createUploadHandler({
         webhookPublicKey: process.env.BLOB_WEBHOOK_PUBLIC_KEY || UNUSED_WEBHOOK_KEY,
         getSignedToken: async (pathname) => ({
           // Scoped to this one clip name, upload only.
-          token: await signToken({ ...auth, ...constraints, pathname, operations: ['put'] }),
+          token: await signToken({ ...blobAuth, ...constraints, pathname, operations: ['put'] }),
           urlOptions: {
             ...constraints,
             // The browser picks a random UUID name; never replace an existing clip.

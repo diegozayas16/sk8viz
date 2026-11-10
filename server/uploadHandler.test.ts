@@ -8,7 +8,7 @@ const config: ServerConfig = {
   model: 'test-model',
   fallbackModel: null,
   analysisEnabled: true,
-  accessCode: null,
+  supabase: null,
   port: 0,
   redis: null,
   requireSharedLimiter: false,
@@ -30,7 +30,7 @@ type GetSignedToken = (pathname: string, clientPayload: string | null, multipart
 
 // Fakes for the two Blob helpers. The presign fake runs getSignedToken the
 // way the real helper does and echoes what it returned.
-function setup(overrides: Partial<ServerConfig> = {}) {
+function setup(overrides: Partial<ServerConfig> = {}, auth: UploadHandlerDeps['auth'] = null) {
   const signToken = vi.fn(async (_options: Record<string, unknown>) => ({
     delegationToken: 'delegation',
     clientSigningToken: 'signing',
@@ -41,6 +41,7 @@ function setup(overrides: Partial<ServerConfig> = {}) {
   }));
   const handler = createUploadHandler({
     config: { ...config, ...overrides },
+    auth,
     presign: presign as unknown as UploadHandlerDeps['presign'],
     signToken: signToken as unknown as UploadHandlerDeps['signToken'],
   });
@@ -80,12 +81,17 @@ describe('upload handler', () => {
     expect((await setup({ apiKey: null }).handler(presignRequest())).status).toBe(503);
   });
 
-  it('requires the access code when one is configured', async () => {
-    const { handler, presign } = setup({ accessCode: 'kickflip' });
+  it('requires a signed-in user when sign-in is configured', async () => {
+    const supabase = { url: 'https://p.supabase.co', publishableKey: 'sb_publishable_x' };
+    const auth = async (request: Request) =>
+      request.headers.get('authorization') === 'Bearer good' ? { id: 'user-1' } : null;
+    const { handler, presign } = setup({ supabase }, auth);
     expect((await handler(presignRequest())).status).toBe(401);
-    expect((await handler(presignRequest(PATHNAME, { 'X-Access-Code': 'nope' }))).status).toBe(401);
+    expect((await handler(presignRequest(PATHNAME, { Authorization: 'Bearer bad' }))).status).toBe(401);
     expect(presign).not.toHaveBeenCalled();
-    expect((await handler(presignRequest(PATHNAME, { 'X-Access-Code': 'kickflip' }))).status).toBe(200);
+    expect((await handler(presignRequest(PATHNAME, { Authorization: 'Bearer good' }))).status).toBe(200);
+    // No verifier wired: fail closed rather than let anyone upload.
+    expect((await setup({ supabase }).handler(presignRequest(PATHNAME, { Authorization: 'Bearer good' }))).status).toBe(503);
   });
 
   it('refuses other pathnames, event types (including callbacks), and methods', async () => {

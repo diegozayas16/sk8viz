@@ -1,14 +1,15 @@
 import { ArrowRight, Loader2, Upload, Video } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { ANALYSIS_LIMITS } from '../shared/analysis/limits.ts';
-import { AccessCodeField } from './components/AccessCodeField.tsx';
 import { AnalysisError } from './components/AnalysisError.tsx';
 import { AnalysisResultCard } from './components/AnalysisResultCard.tsx';
+import { AuthPanel } from './components/AuthPanel.tsx';
 import { CameraRecorder } from './components/CameraRecorder.tsx';
 import { ClipPicker } from './components/ClipPicker.tsx';
 import { HowItWorks } from './components/HowItWorks.tsx';
 import { SegmentedControl } from './components/SegmentedControl.tsx';
 import { useAnalysis } from './hooks/useAnalysis.ts';
+import { useAuth } from './hooks/useAuth.ts';
 import { useClipSelection } from './hooks/useClipSelection.ts';
 import { useLiveAvailability } from './hooks/useLiveAvailability.ts';
 
@@ -23,7 +24,7 @@ const FOCUS = 'focus-visible:outline-2 focus-visible:outline-offset-2 focus-visi
 
 export default function App() {
   const [source, setSource] = useState<ClipSource>('upload');
-  const [accessCode, setAccessCode] = useState('');
+  const auth = useAuth();
   const health = useLiveAvailability();
   const maxUploadBytes = health?.largeUploadsAvailable ? ANALYSIS_LIMITS.maxLargeClipBytes : ANALYSIS_LIMITS.maxClipBytes;
   const clipSelection = useClipSelection(maxUploadBytes);
@@ -34,9 +35,10 @@ export default function App() {
   const uploadPercent = analysis.state.status === 'analyzing' ? analysis.state.uploadPercent : undefined;
   const uploading = uploadPercent !== undefined && uploadPercent < 100;
   const liveUnavailable = health !== null && !health.liveAnalysisAvailable;
-  const needsCode = health?.liveAnalysisAvailable === true && health.accessCodeRequired;
-  const canAnalyze =
-    !analyzing && clip !== null && health?.liveAnalysisAvailable === true && (!needsCode || accessCode.trim() !== '');
+  const signedIn = auth.state.status === 'signed_in';
+  // The server needs an account, and this visitor isn't signed in yet.
+  const needsSignIn = health?.liveAnalysisAvailable === true && health.signInRequired && !signedIn;
+  const canAnalyze = !analyzing && clip !== null && health?.liveAnalysisAvailable === true && !needsSignIn;
 
   // Demo data is only ever shown on an explicit tap, always with its label.
   const showExample = () => void analysis.run('demo', null);
@@ -68,14 +70,32 @@ export default function App() {
           <p className="display text-[28px] leading-none">
             Sk8<span className="text-accent">viz</span>
           </p>
-          <button
-            type="button"
-            onClick={showExample}
-            disabled={analyzing}
-            className={`min-h-11 font-mono text-xs uppercase tracking-[0.08em] underline-offset-4 hover:underline disabled:opacity-50 ${FOCUS}`}
-          >
-            See an example
-          </button>
+          <div className="flex min-w-0 items-center gap-5">
+            {auth.state.status === 'signed_in' && (
+              <>
+                <span className="hidden truncate font-mono text-xs text-muted sm:inline">{auth.state.email}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    analysis.reset();
+                    void auth.signOut();
+                  }}
+                  disabled={analyzing}
+                  className={`min-h-11 shrink-0 font-mono text-xs uppercase tracking-[0.08em] underline-offset-4 hover:underline disabled:opacity-50 ${FOCUS}`}
+                >
+                  Sign out
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={showExample}
+              disabled={analyzing}
+              className={`min-h-11 shrink-0 font-mono text-xs uppercase tracking-[0.08em] underline-offset-4 hover:underline disabled:opacity-50 ${FOCUS}`}
+            >
+              See an example
+            </button>
+          </div>
         </div>
       </header>
 
@@ -140,12 +160,19 @@ export default function App() {
               />
             )}
 
-            {needsCode && <AccessCodeField value={accessCode} onChange={setAccessCode} disabled={analyzing} />}
+            {needsSignIn &&
+              (auth.state.status === 'signed_out' ? (
+                <AuthPanel onGoogle={auth.signInWithGoogle} onEmail={auth.signInWithEmail} disabled={analyzing} />
+              ) : auth.state.status === 'unavailable' ? (
+                <p className="border border-edge p-4 text-sm text-body">
+                  Live analysis needs an account, but sign-in isn't set up in this version of the site.
+                </p>
+              ) : null)}
 
             <button
               type="button"
               disabled={!canAnalyze}
-              onClick={() => void analysis.run('live', clip, accessCode)}
+              onClick={() => void analysis.run('live', clip, auth.getAccessToken)}
               className={`display mt-1 flex min-h-15 items-center justify-between bg-accent px-5 text-[22px] leading-none text-ground font-stretch-condensed transition-colors hover:bg-accent-hover disabled:cursor-not-allowed disabled:bg-raised disabled:text-dim ${FOCUS}`}
             >
               {uploading ? `Uploading ${uploadPercent}%` : analyzing ? 'Analyzing…' : 'Analyze clip'}

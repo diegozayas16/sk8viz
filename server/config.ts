@@ -6,12 +6,14 @@ export interface ServerConfig {
   // Tried once when the main model is overloaded (503). null disables it.
   fallbackModel: string | null;
   analysisEnabled: boolean;
-  // When set, live analysis requires this code in the X-Access-Code header.
-  accessCode: string | null;
+  // Supabase project used for sign-in. When set, live analysis needs a signed-in
+  // user. Both values are public (the browser uses the same ones).
+  supabase: { url: string; publishableKey: string } | null;
   port: number;
   // Upstash Redis REST credentials for the shared rate limiter.
   redis: { url: string; token: string } | null;
-  // Deployed functions run on many instances and must share limiter state.
+  // True on Vercel: deployed functions run on many instances and must share
+  // limiter state, and the public site must require sign-in.
   requireSharedLimiter: boolean;
   // Vercel Blob credentials; either one enables clips over the direct 4 MB
   // limit. A read-write token (local dev, older store connections), or a
@@ -34,12 +36,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const redisToken = (env.UPSTASH_REDIS_REST_TOKEN ?? env.KV_REST_API_TOKEN)?.trim();
   const model = env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
   const fallback = env.GEMINI_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_MODEL;
+  const supabaseUrl = env.VITE_SUPABASE_URL?.trim();
+  const supabaseKey = env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
   return {
     apiKey: env.GEMINI_API_KEY?.trim() || null,
     model,
     fallbackModel: fallback.toLowerCase() === 'none' || fallback === model ? null : fallback,
     analysisEnabled: env.ANALYSIS_ENABLED?.trim().toLowerCase() !== 'false',
-    accessCode: env.ANALYSIS_ACCESS_CODE?.trim() || null,
+    supabase: supabaseUrl && supabaseKey ? { url: supabaseUrl, publishableKey: supabaseKey } : null,
     port: Number.isInteger(port) && port > 0 ? port : 8787,
     redis: redisUrl && redisToken ? { url: redisUrl, token: redisToken } : null,
     requireSharedLimiter: env.VERCEL === '1',

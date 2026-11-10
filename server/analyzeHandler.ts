@@ -1,4 +1,3 @@
-import { createHash, timingSafeEqual } from 'node:crypto';
 import { ACCEPTED_VIDEO_TYPES, ANALYSIS_LIMITS, isAcceptedVideoType } from '../shared/analysis/limits.ts';
 import {
   ClipWindowSchema,
@@ -8,6 +7,7 @@ import {
   type ClipWindow,
   type HealthResponse,
 } from '../shared/analysis/schema.ts';
+import type { AuthVerifier } from './auth.ts';
 import { largeUploadsConfigured, type ServerConfig } from './config.ts';
 import { matchesVideoSignature, readLimitedBody } from './readBody.ts';
 import type { ClipAnalyzer, ClipStore } from './types.ts';
@@ -17,6 +17,7 @@ import type { UsageLimiter } from './usageLimiter.ts';
 // they can be mounted in a Node server or a serverless function unchanged.
 
 export interface RequestContext {
+  // Fallback limiter key (the client IP), used only when sign-in is not configured.
   clientId: string;
   // Aborted when the client disconnects.
   signal?: AbortSignal;
@@ -36,6 +37,8 @@ export interface HandlerDeps {
   config: ServerConfig;
   analyzer: ClipAnalyzer | null;
   limiter: UsageLimiter;
+  // Required when config.supabase is set; turns the bearer token into a user.
+  auth?: AuthVerifier | null;
   // null when large uploads are not configured (no Blob token).
   clipStore?: ClipStore | null;
   log?: (entry: LogEntry) => void;
@@ -50,7 +53,7 @@ const STATUS: Record<AnalysisErrorCode, number> = {
   busy: 503,
   quota_exceeded: 429,
   daily_limit_reached: 429,
-  access_denied: 401,
+  sign_in_required: 401,
   analysis_disabled: 503,
   timeout: 504,
   content_blocked: 422,
@@ -67,7 +70,7 @@ const MESSAGES: Record<AnalysisErrorCode, string> = {
   busy: 'The analyzer is busy right now. Try again shortly.',
   quota_exceeded: "Today's analysis limit has been reached. Try again tomorrow.",
   daily_limit_reached: `You've used your ${ANALYSIS_LIMITS.perClientDailyMax} analyses for today. Come back tomorrow!`,
-  access_denied: 'Live analysis needs a valid access code.',
+  sign_in_required: 'Sign in to analyze your own clips.',
   analysis_disabled: 'Live analysis is switched off right now.',
   timeout: 'The analysis took too long and was stopped.',
   content_blocked: 'The AI provider declined to analyze this clip.',
@@ -86,6 +89,8 @@ export function liveUnavailableReason(config: ServerConfig): string | null {
   if (!config.analysisEnabled) return MESSAGES.analysis_disabled;
   if (!config.apiKey) return MESSAGES.server_misconfigured;
   if (config.requireSharedLimiter && !config.redis) return MESSAGES.server_misconfigured;
+  // The public site must not offer live analysis without accounts.
+  if (config.requireSharedLimiter && !config.supabase) return MESSAGES.server_misconfigured;
   return null;
 }
 
@@ -96,7 +101,7 @@ export function createHealthHandler(config: ServerConfig) {
       {
         liveAnalysisAvailable: reason === null,
         reason,
-        accessCodeRequired: config.accessCode !== null,
+        signInRequired: config.supabase !== null,
         largeUploadsAvailable: reason === null && largeUploadsConfigured(config),
       },
       200,
@@ -104,11 +109,16 @@ export function createHealthHandler(config: ServerConfig) {
   };
 }
 
-// Compares fixed-length digests so the check takes the same time for any guess.
-export function accessCodeMatches(given: string | null, expected: string): boolean {
-  if (!given) return false;
-  const digest = (value: string) => createHash('sha256').update(value).digest();
-  return timingSafeEqual(digest(given.trim()), digest(expected));
+export type SignInCheck = { ok: true; limiterKey: string | null } | { ok: false; code: 'sign_in_required' | 'server_misconfigured' };
+
+// When sign-in is configured, the request must carry a valid token, and usage
+// is counted per user. Otherwise (local dev without Supabase) limiterKey is null
+// and the caller falls back to the IP address.
+export async function checkSignIn(config: ServerConfig, auth: AuthVerifier | null, request: Request): Promise<SignInCheck> {
+  if (!config.supabase) return { ok: true, limiterKey: null };
+  if (!auth) return { ok: false, code: 'server_misconfigured' };
+  const user = await auth(request);
+  return user ? { ok: true, limiterKey: `user:${user.id}` } : { ok: false, code: 'sign_in_required' };
 }
 
 // Outcomes where Gemini did not run the analysis, so the attempt should not
@@ -219,9 +229,10 @@ export function createAnalyzeHandler(deps: HandlerDeps) {
     if (request.method !== 'POST') return fail('invalid_request', { detail: `method ${request.method}` });
     if (!deps.config.analysisEnabled) return fail('analysis_disabled');
     if (!deps.analyzer) return fail('server_misconfigured', { detail: 'missing api key' });
-    if (deps.config.accessCode && !accessCodeMatches(request.headers.get('x-access-code'), deps.config.accessCode)) {
-      return fail('access_denied');
-    }
+    // Before anything is read, counted, or deleted.
+    const signIn = await checkSignIn(deps.config, deps.auth ?? null, request);
+    if (!signIn.ok) return fail(signIn.code);
+    const limiterKey = signIn.limiterKey ?? ctx.clientId;
 
     const parsed = await parseRequest(request, clipStore);
     if (!parsed.ok) return fail(parsed.code, { detail: parsed.detail });
@@ -231,7 +242,7 @@ export function createAnalyzeHandler(deps: HandlerDeps) {
     const run = async (): Promise<Response> => {
       let slot;
       try {
-        slot = await deps.limiter.tryAcquire(ctx.clientId);
+        slot = await deps.limiter.tryAcquire(limiterKey);
       } catch {
         // Fail closed: without the shared limiter we cannot enforce usage limits.
         return fail('busy', { detail: 'limiter unavailable', retryAfterSeconds: 30 });

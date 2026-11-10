@@ -12,12 +12,12 @@ import { useAnalysis } from './useAnalysis.ts';
 type Progress = (percent: number) => void;
 const pending: { resolve: (outcome: AnalyzeOutcome) => void; signal: AbortSignal; progress?: Progress }[] = [];
 const analyzeClip = vi.fn(
-  (_clip: SelectedClip, _code: string, signal: AbortSignal, progress?: Progress) =>
+  (_clip: SelectedClip, _token: string | null, signal: AbortSignal, progress?: Progress) =>
     new Promise<AnalyzeOutcome>((resolve) => pending.push({ resolve, signal, progress })),
 );
 vi.mock('../services/analysisClient.ts', () => ({
-  analyzeClip: (clip: SelectedClip, code: string, signal: AbortSignal, progress?: Progress) =>
-    analyzeClip(clip, code, signal, progress),
+  analyzeClip: (clip: SelectedClip, token: string | null, signal: AbortSignal, progress?: Progress) =>
+    analyzeClip(clip, token, signal, progress),
 }));
 
 const clip = (name: string): SelectedClip => ({
@@ -98,5 +98,24 @@ describe('useAnalysis', () => {
     await act(async () => pending[0]?.resolve({ ok: true, result: result('done') }));
     act(() => pending[0]?.progress?.(100));
     expect(hook.current.state).toMatchObject({ status: 'success', result: { summary: 'done' } });
+  });
+
+  it('sends the access token read at request time', async () => {
+    const { result: hook } = renderHook(() => useAnalysis());
+    const getToken = vi.fn(async () => 'fresh-token');
+    await act(async () => void hook.current.run('live', clip('a.mp4'), getToken));
+    expect(getToken).toHaveBeenCalledTimes(1);
+    expect(analyzeClip).toHaveBeenCalledWith(expect.anything(), 'fresh-token', expect.any(AbortSignal), expect.any(Function));
+  });
+
+  it('drops the request if reset while the token is being read', async () => {
+    const { result: hook } = renderHook(() => useAnalysis());
+    let giveToken: (token: string) => void = () => {};
+    const getToken = () => new Promise<string | null>((resolve) => (giveToken = resolve));
+    act(() => void hook.current.run('live', clip('a.mp4'), getToken));
+    act(() => hook.current.reset());
+    await act(async () => giveToken('late'));
+    expect(analyzeClip).not.toHaveBeenCalled();
+    expect(hook.current.state).toEqual({ status: 'idle' });
   });
 });

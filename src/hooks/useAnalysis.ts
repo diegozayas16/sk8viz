@@ -25,7 +25,7 @@ export function useAnalysis() {
 
   useEffect(() => cancel, [cancel]);
 
-  const run = useCallback(async (mode: AnalysisMode, clip: SelectedClip | null, accessCode = '') => {
+  const run = useCallback(async (mode: AnalysisMode, clip: SelectedClip | null, getAccessToken?: () => Promise<string | null>) => {
     if (inFlightRef.current) return;
 
     if (mode === 'demo') {
@@ -49,7 +49,9 @@ export function useAnalysis() {
         setState({ status: 'analyzing', mode, uploadPercent });
       }
     };
-    const outcome = await analyzeClip(clip, accessCode, controller.signal, onUploadProgress);
+    const accessToken = getAccessToken ? await getAccessToken() : null;
+    if (id !== requestIdRef.current) return;
+    const outcome = await analyzeClip(clip, accessToken, controller.signal, onUploadProgress);
     if (id !== requestIdRef.current) return;
 
     inFlightRef.current = false;

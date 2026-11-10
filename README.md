@@ -62,8 +62,8 @@ Then open <http://localhost:5173>.
 
 ## Settings
 
-All settings are server-side environment variables; none reach the browser.
-`.env.example` describes each one.
+All settings are environment variables. Only the two `VITE_SUPABASE_*` values
+reach the browser, and they are public by design. `.env.example` describes each one.
 
 | Variable | Needed | Purpose |
 | --- | --- | --- |
@@ -71,15 +71,15 @@ All settings are server-side environment variables; none reach the browser.
 | `GEMINI_MODEL` | No | Main model (default `gemini-3.6-flash`) |
 | `GEMINI_FALLBACK_MODEL` | No | Tried once when the main model is busy; `none` turns it off |
 | `ANALYSIS_ENABLED` | No | `false` switches live analysis off |
-| `ANALYSIS_ACCESS_CODE` | No | When set, visitors must enter this code to analyze |
+| `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY` | On Vercel | Supabase project for sign-in (Google or email + password); live analysis needs a signed-in user |
 | `BLOB_READ_WRITE_TOKEN` | For clips over 4 MB, locally | Vercel Blob token for temporary clip storage |
 | `BLOB_STORE_ID` | For clips over 4 MB, on Vercel | Set by connecting a Blob store; used with Vercel OIDC |
 | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` | On Vercel | Shared rate limits across function instances |
 
 ## Limits
 
-To protect the free Gemini quota, each visitor gets 10 analyses per day (UTC)
-and the whole site 35. One analysis runs at a time per visitor, and each one
+To protect the free Gemini quota, each signed-in user gets 10 analyses per day (UTC)
+and the whole site 35. One analysis runs at a time per user, and each one
 times out after 2 minutes. Gemini's cost depends on how many seconds it
 watches, not on file size, which is why clips are trimmed to at most 60
 seconds. Attempts that never reached Gemini, or that Gemini

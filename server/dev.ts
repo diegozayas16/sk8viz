@@ -57,7 +57,8 @@ const server = createServer(async (req, res) => {
   const path = new URL(req.url ?? '/', 'http://localhost').pathname;
   let response: Response;
   if (path === '/api/analyze') {
-    // Uses the socket address. Do not trust X-Forwarded-For unless a verified proxy sets it.
+    // Fallback limiter key when sign-in isn't configured. Uses the socket
+    // address; do not trust X-Forwarded-For unless a verified proxy sets it.
     const clientId = req.socket.remoteAddress ?? 'unknown';
     const request = toRequest(req, disconnect.signal);
     response = await analyze(request, { clientId, signal: disconnect.signal });
@@ -83,6 +84,7 @@ server.listen(config.port, () => {
   const unavailable = liveUnavailableReason(config);
   const limiter = config.redis ? 'shared Redis' : 'in-memory';
   const uploads = largeUploadsConfigured(config) ? 'large uploads on' : 'large uploads off (no BLOB_READ_WRITE_TOKEN)';
-  console.log(`Sk8viz API listening on http://localhost:${config.port} (model ${config.model}, ${limiter} limits, ${uploads})`);
+  const signIn = config.supabase ? 'sign-in required' : 'no sign-in (Supabase not set)';
+  console.log(`Sk8viz API listening on http://localhost:${config.port} (model ${config.model}, ${limiter} limits, ${uploads}, ${signIn})`);
   if (unavailable) console.log(`Live analysis unavailable: ${unavailable}`);
 });

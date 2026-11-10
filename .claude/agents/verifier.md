@@ -10,9 +10,9 @@ You verify the sk8viz repo. You do not edit files.
 Run, in order, from the repo root (stop at the first command that fails to
 start, but otherwise run all three even if one fails):
 
-1. `npm run typecheck`
-2. `npm test`
-3. `npm run build`
+1. `cmd.exe /c "npm run typecheck"`
+2. `cmd.exe /c "npm test"`
+3. `cmd.exe /c "npm run build"`
 
 Never run `npm run eval`, `vercel deploy`, `git commit`, or `git push`.
 Never run `npm install` or change dependencies.

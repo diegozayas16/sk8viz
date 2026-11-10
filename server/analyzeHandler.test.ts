@@ -8,6 +8,7 @@ import {
   type HandlerDeps,
   type LogEntry,
 } from './analyzeHandler.ts';
+import type { AuthVerifier } from './auth.ts';
 import type { ServerConfig } from './config.ts';
 import type { ClipAnalyzer, ClipInput, ClipStore, StoredClipRead } from './types.ts';
 import { createUsageLimiter } from './usageLimiter.ts';
@@ -17,13 +18,23 @@ const config: ServerConfig = {
   model: 'test-model',
   fallbackModel: null,
   analysisEnabled: true,
-  accessCode: null,
+  supabase: null,
   port: 0,
   redis: null,
   requireSharedLimiter: false,
   blobToken: null,
   blobStoreId: null,
 };
+
+const signInConfig: ServerConfig = { ...config, supabase: { url: 'https://p.supabase.co', publishableKey: 'sb_publishable_x' } };
+
+// Treats "Bearer user-<n>" as signed in and anything else as invalid.
+const fakeAuth: AuthVerifier = async (request) => {
+  const token = request.headers.get('authorization')?.replace('Bearer ', '') ?? '';
+  return token.startsWith('user-') ? { id: token } : null;
+};
+
+const bearer = (token: string) => ({ Authorization: `Bearer ${token}` });
 
 const result: AnalysisResult = {
   verdict: 'analyzed',
@@ -172,21 +183,42 @@ describe('analyze handler', () => {
     expect(called).toBe(false);
   });
 
-  it('requires the access code when one is configured, without using the limiter', async () => {
-    let acquired = 0;
+  it('requires a signed-in user when sign-in is configured, without using the limiter', async () => {
+    const keys: string[] = [];
     const limiter = {
-      tryAcquire: async () => {
-        acquired += 1;
+      tryAcquire: async (key: string) => {
+        keys.push(key);
         return { ok: true as const, release: async () => {} };
       },
     };
-    const { handler } = setup({ config: { ...config, accessCode: 'kickflip' }, limiter });
-    expect((await handler(upload(mp4Bytes), { clientId: 'a' })).status).toBe(401);
-    expect((await handler(upload(mp4Bytes, 'video/mp4', { 'X-Access-Code': 'nope' }), { clientId: 'a' })).status).toBe(401);
-    expect(acquired).toBe(0);
-    const ok = await handler(upload(mp4Bytes, 'video/mp4', { 'X-Access-Code': ' kickflip ' }), { clientId: 'a' });
+    const { handler } = setup({ config: signInConfig, auth: fakeAuth, limiter });
+    const signedOut = await handler(upload(mp4Bytes), { clientId: '1.2.3.4' });
+    expect(signedOut.status).toBe(401);
+    expect(await signedOut.json()).toMatchObject({ error: { code: 'sign_in_required' } });
+    expect((await handler(upload(mp4Bytes, 'video/mp4', bearer('forged')), { clientId: '1.2.3.4' })).status).toBe(401);
+    expect(keys).toEqual([]);
+    const ok = await handler(upload(mp4Bytes, 'video/mp4', bearer('user-1')), { clientId: '1.2.3.4' });
     expect(ok.status).toBe(200);
-    expect(acquired).toBe(1);
+    // Counted per user, not per IP.
+    expect(keys).toEqual(['user:user-1']);
+  });
+
+  it('uses the IP as the limiter key when sign-in is not configured', async () => {
+    const keys: string[] = [];
+    const limiter = {
+      tryAcquire: async (key: string) => {
+        keys.push(key);
+        return { ok: true as const, release: async () => {} };
+      },
+    };
+    const { handler } = setup({ limiter });
+    expect((await handler(upload(mp4Bytes), { clientId: '1.2.3.4' })).status).toBe(200);
+    expect(keys).toEqual(['1.2.3.4']);
+  });
+
+  it('fails closed when sign-in is configured but no verifier was wired', async () => {
+    const { handler } = setup({ config: signInConfig });
+    expect((await handler(upload(mp4Bytes, 'video/mp4', bearer('user-1')), { clientId: 'a' })).status).toBe(500);
   });
 
   it('refunds daily usage only when the provider did not run the analysis', async () => {
@@ -210,7 +242,9 @@ describe('analyze handler', () => {
 
   it('reports live analysis unavailable when a deployment has no shared limiter', () => {
     expect(liveUnavailableReason({ ...config, requireSharedLimiter: true, redis: null })).not.toBeNull();
-    expect(liveUnavailableReason({ ...config, requireSharedLimiter: true, redis: { url: 'u', token: 't' } })).toBeNull();
+    const withSignIn = { ...config, supabase: { url: 'https://p.supabase.co', publishableKey: 'k' } };
+    expect(liveUnavailableReason({ ...withSignIn, requireSharedLimiter: true, redis: null })).not.toBeNull();
+    expect(liveUnavailableReason({ ...withSignIn, requireSharedLimiter: true, redis: { url: 'u', token: 't' } })).toBeNull();
   });
 
   it('does not leak provider details in error responses', async () => {
@@ -374,9 +408,9 @@ describe('analyze handler with stored (large) clips', () => {
     expect(response.status).toBe(200);
   });
 
-  it('checks the access code before reading or deleting anything', async () => {
+  it('checks sign-in before reading or deleting anything', async () => {
     const { store, deleted, reads } = fakeStore();
-    const { handler } = setup({ clipStore: store, config: { ...config, accessCode: 'kickflip' } });
+    const { handler } = setup({ clipStore: store, config: signInConfig, auth: fakeAuth });
     expect((await handler(storedRequest(validStored), { clientId: 'a' })).status).toBe(401);
     expect(reads).toEqual([]);
     expect(deleted).toEqual([]);
@@ -391,6 +425,17 @@ describe('health handler', () => {
     expect(await health({})).toMatchObject({ largeUploadsAvailable: false });
     expect(await health({ blobToken: 'vercel_blob_rw_x' })).toMatchObject({ largeUploadsAvailable: true });
     expect(await health({ blobStoreId: 'store_abc' })).toMatchObject({ largeUploadsAvailable: true });
+  });
+
+  it('reports whether sign-in is required', async () => {
+    expect(await health({})).toMatchObject({ signInRequired: false });
+    expect(await health({ supabase: signInConfig.supabase })).toMatchObject({ signInRequired: true });
+  });
+
+  it('turns live analysis off on Vercel unless sign-in is configured', () => {
+    const vercel = { ...config, requireSharedLimiter: true, redis: { url: 'https://r', token: 't' } };
+    expect(liveUnavailableReason(vercel)).not.toBeNull();
+    expect(liveUnavailableReason({ ...vercel, supabase: signInConfig.supabase })).toBeNull();
   });
 
   it('reports large uploads off whenever live analysis is off', async () => {

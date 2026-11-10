@@ -66,7 +66,7 @@ export const AnalysisErrorCodeSchema = z.enum([
   'busy',
   'quota_exceeded',
   'daily_limit_reached',
-  'access_denied',
+  'sign_in_required',
   'analysis_disabled',
   'timeout',
   'content_blocked',
@@ -95,7 +95,8 @@ export type AnalyzeResponse = z.infer<typeof AnalyzeResponseSchema>;
 export const HealthResponseSchema = z.object({
   liveAnalysisAvailable: z.boolean(),
   reason: z.string().nullable(),
-  accessCodeRequired: z.boolean(),
+  // True when live analysis needs a signed-in user.
+  signInRequired: z.boolean(),
   // True when clips over the direct limit can go through Vercel Blob.
   largeUploadsAvailable: z.boolean(),
 });

@@ -20,18 +20,19 @@ export type AnalyzeOutcome = { ok: true; result: AnalysisResult } | { ok: false;
 // from /api/upload), then /api/analyze reads them from there and deletes them.
 export async function analyzeClip(
   clip: SelectedClip,
-  accessCode: string,
+  // The signed-in user's Supabase access token; null when sign-in isn't configured.
+  accessToken: string | null,
   signal: AbortSignal,
   onUploadProgress?: (percent: number) => void,
 ): Promise<AnalyzeOutcome> {
-  const codeHeader: Record<string, string> = accessCode.trim() ? { 'X-Access-Code': accessCode.trim() } : {};
+  const authHeader: Record<string, string> = accessToken ? { Authorization: `Bearer ${accessToken}` } : {};
   const { startSeconds, endSeconds } = clip.window;
 
   let request: RequestInit;
   let url: string;
   if (clip.file.size <= ANALYSIS_LIMITS.maxClipBytes) {
     url = `/api/analyze?start=${startSeconds}&end=${endSeconds}`;
-    request = { method: 'POST', headers: { 'Content-Type': clip.type, ...codeHeader }, body: clip.file, signal };
+    request = { method: 'POST', headers: { 'Content-Type': clip.type, ...authHeader }, body: clip.file, signal };
   } else {
     const pathname = storedClipPathname(crypto.randomUUID(), clip.type);
     try {
@@ -40,7 +41,7 @@ export async function analyzeClip(
       await uploadPresigned(pathname, clip.file, {
         access: 'private',
         handleUploadUrl: '/api/upload',
-        headers: codeHeader,
+        headers: authHeader,
         contentType: clip.type,
         multipart: clip.file.size > MULTIPART_THRESHOLD_BYTES,
         abortSignal: signal,
@@ -52,7 +53,7 @@ export async function analyzeClip(
         ok: false,
         error: {
           code: 'upload_failed',
-          message: "Couldn't upload your clip. Check your connection and access code, then try again.",
+          message: "Couldn't upload your clip. Check your connection, then try again.",
         },
       };
     }
@@ -60,7 +61,7 @@ export async function analyzeClip(
     const body: StoredClipRequest = { pathname, window: clip.window };
     request = {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...codeHeader },
+      headers: { 'Content-Type': 'application/json', ...authHeader },
       body: JSON.stringify(body),
       signal,
     };
@@ -100,7 +101,7 @@ export async function fetchHealth(signal: AbortSignal): Promise<HealthResponse> 
   return {
     liveAnalysisAvailable: false,
     reason: "Can't reach the analysis server.",
-    accessCodeRequired: false,
+    signInRequired: false,
     largeUploadsAvailable: false,
   };
 }
