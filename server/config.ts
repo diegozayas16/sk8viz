@@ -1,3 +1,5 @@
+import { supabaseProjectUrl } from '../shared/auth/supabaseUrl.ts';
+
 // Server runtime configuration. Secrets are read here and never sent to the browser.
 
 export interface ServerConfig {
@@ -36,7 +38,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   const redisToken = (env.UPSTASH_REDIS_REST_TOKEN ?? env.KV_REST_API_TOKEN)?.trim();
   const model = env.GEMINI_MODEL?.trim() || DEFAULT_MODEL;
   const fallback = env.GEMINI_FALLBACK_MODEL?.trim() || DEFAULT_FALLBACK_MODEL;
-  const supabaseUrl = env.VITE_SUPABASE_URL?.trim();
+  const supabaseUrl = supabaseProjectUrl(env.VITE_SUPABASE_URL);
   const supabaseKey = env.VITE_SUPABASE_PUBLISHABLE_KEY?.trim();
   return {
     apiKey: env.GEMINI_API_KEY?.trim() || null,
